@@ -6,11 +6,12 @@ import { isExpired } from "../accounts/source.js";
 // fallback (soonest cooldown expiry) when nothing is strictly ACTIVE.
 
 export class AccountPool {
-  constructor({ source, sticky, health, strategy = "round-robin" }) {
+  constructor({ source, sticky, health, strategy = "round-robin", premiumModels = [] }) {
     this.source = source;
     this.sticky = sticky;
     this.health = health;
     this.strategy = strategy;
+    this.premiumModels = premiumModels;
     this.cursor = 0;
     this.inFlight = new Map();
     // account ids proven (via probe) to stream reasoning summaries
@@ -56,20 +57,15 @@ export class AccountPool {
     this.#bumpInFlight(account.id, -1);
   }
 
+  #rotation(candidates) {
+    if (!candidates.length) return null;
+    const chosen = candidates[this.cursor % candidates.length];
+    this.cursor = (this.cursor + 1) % Number.MAX_SAFE_INTEGER;
+    return chosen;
+  }
+
   #byStrategy(candidates) {
     if (!candidates.length) return null;
-    // premium-first: prefer summary-capable accounts for every inference; the
-    // rotation continues naturally over the rest whenever premiums are cooling
-    // down / rate-limited (they rejoin automatically on heal).
-    if (this.strategy === "premium-first") {
-      const premium = candidates.filter(c => this.isPremium(c));
-      if (premium.length) {
-        const pick = premium[Math.floor(Math.random() * premium.length)];
-        // keep the cursor moving so ordinary rotation stays fair for other traffic
-        this.cursor = (this.cursor + 1) % Number.MAX_SAFE_INTEGER;
-        return pick;
-      }
-    }
     if (this.strategy === "random") {
       return candidates[Math.floor(Math.random() * candidates.length)];
     }
@@ -78,9 +74,7 @@ export class AccountPool {
         (this.inFlight.get(cur.id) ?? 0) < (this.inFlight.get(best.id) ?? 0) ? cur : best);
     }
     // round-robin (monotonic cursor; modulo at use keeps it stable when the list reorders)
-    const chosen = candidates[this.cursor % candidates.length];
-    this.cursor = (this.cursor + 1) % Number.MAX_SAFE_INTEGER;
-    return chosen;
+    return this.#rotation(candidates);
   }
 
   #resolveStickyAccount(classification, excludeIds) {
@@ -101,16 +95,42 @@ export class AccountPool {
 
   pickFor({ classification, excludeIds = new Set(), allowFallback = true }) {
     const all = this.accounts();
-    const active = all.filter(a => this.#usable(a) && !excludeIds.has(a.id));
 
     // 1. Sticky affinity (state lives on the account side — must return there)
     const stickyAccount = this.#resolveStickyAccount(classification, excludeIds);
     if (stickyAccount) return { account: stickyAccount, via: "sticky" };
 
-    // 2. Strategy over ACTIVE accounts
+    const usable = all.filter(a => this.#usable(a) && !excludeIds.has(a.id));
+
+    // 2. premium-first: premiums serve all inference while healthy
+    if (this.strategy === "premium-first" && usable.length) {
+      const premiumGroup = usable.filter(a => this.isPremium(a));
+      if (premiumGroup.length) {
+        return { account: this.#rotation(premiumGroup), via: "premium-first" };
+      }
+    }
+
+    // 3. reserve strategy: non-premium accounts do the everyday work; premium
+    //    accounts serve only requests whose model is in PREMIUM_MODELS —
+    //    keeping premium token burn as low as possible.
+    if (this.strategy === "reserve" && usable.length) {
+      const wantsPremium = Boolean(
+        classification?.model && this.premiumModels.includes(classification.model));
+      const premiumGroup = usable.filter(a => this.isPremium(a));
+      const normalGroup = usable.filter(a => !this.isPremium(a));
+      const group = wantsPremium
+        ? (premiumGroup.length ? premiumGroup : normalGroup)
+        : (normalGroup.length ? normalGroup : premiumGroup);
+      if (group.length) {
+        return { account: this.#rotation(group), via: wantsPremium ? "reserve+premium" : "reserve" };
+      }
+    }
+
+    // 4. Strategy over ACTIVE accounts
+    const active = usable;
     if (active.length) return { account: this.#byStrategy(active), via: this.strategy };
 
-    // 3. Best effort: nothing strictly ACTIVE — take the account whose cooldown ends first
+    // 5. Best effort: nothing strictly ACTIVE — take the account whose cooldown ends first
     if (allowFallback) {
       const cooling = all.filter(a =>
         a.isActive && a.auth.accessToken && !isExpired(a.auth) && !excludeIds.has(a.id)

@@ -35,6 +35,12 @@ export function loadConfig(env = process.env) {
       : path.join(path.dirname(path.resolve(env.POOL_DB_PATH ?? "./data/pool.db")), "accounts.extra.json"),
     poolDbPath: path.resolve(env.POOL_DB_PATH ?? "./data/pool.db"),
     strategy: env.POOL_STRATEGY ?? "round-robin",
+    // reserve strategy: requests whose model is in this list go to premium
+    // accounts (thinking); everything else rotates over the non-premium pool.
+    premiumModels: (env.PREMIUM_MODELS ?? "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean),
     maxFailovers: Number(env.MAX_FAILOVERS ?? 4),
     stickyTtlMs: Number(env.STICKY_TTL_MS ?? 3_600_000),
     healthProbeIntervalMs: Number(env.HEALTH_PROBE_INTERVAL_MS ?? 600_000),

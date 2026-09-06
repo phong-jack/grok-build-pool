@@ -17,7 +17,7 @@ const source = new AccountSource({ dbPath: cfg.routerDbPath, ttlMs: cfg.accounts
 const store = new PoolStore(cfg.poolDbPath, { retentionDays: cfg.requestRetentionDays });
 const sticky = new StickyIndex({ store, ttlMs: cfg.stickyTtlMs });
 const health = new HealthTracker({ store });
-const pool = new AccountPool({ source, sticky, health, strategy: cfg.strategy });
+const pool = new AccountPool({ source, sticky, health, strategy: cfg.strategy, premiumModels: cfg.premiumModels });
 
 // Apply refreshed-token overrides from pool.db on top of the read-only 9Router rows.
 for (const rowState of store.loadAccountStates()) {
