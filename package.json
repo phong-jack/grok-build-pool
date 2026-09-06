@@ -1,0 +1,20 @@
+{
+  "name": "grok-pool",
+  "version": "4.0.0",
+  "description": "Transparent catch-all gateway + account pool for Grok Build (trace-all, sticky sessions, health, failover)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "login": "node src/login.js",
+    "accounts": "node src/accounts.js",
+    "smoke": "node scripts/smoke.js",
+    "test": "node --test tests/golden.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1"
+  }
+}

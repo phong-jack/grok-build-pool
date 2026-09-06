@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grok-pool</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --dim: #8b949e;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922; --blue: #58a6ff; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; padding: 20px; }
+  h1 { font-size: 16px; letter-spacing: 1px; margin-bottom: 4px; }
+  h1 span { color: var(--dim); font-weight: normal; }
+  .sub { color: var(--dim); margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
+  .card .k { color: var(--dim); font-size: 11px; text-transform: uppercase; }
+  .card .v { font-size: 20px; margin-top: 2px; }
+  .v.green { color: var(--green); } .v.red { color: var(--red); } .v.yellow { color: var(--yellow); } .v.blue { color: var(--blue); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 16px; }
+  section > h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--dim); font-weight: normal; padding: 6px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+  td { padding: 5px 10px; border-bottom: 1px solid #21262d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+  .scroll { max-height: 300px; overflow: auto; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; border: 1px solid; }
+  .b-ACTIVE { color: var(--green); border-color: var(--green); }
+  .b-COOLDOWN, .b-DEGRADED { color: var(--yellow); border-color: var(--yellow); }
+  .b-RATE_LIMITED { color: var(--orange, #db6d28); border-color: var(--orange, #db6d28); }
+  .b-AUTH_FAILED, .b-DEAD { color: var(--red); border-color: var(--red); }
+  .s2 { color: var(--green); } .s3 { color: var(--blue); } .s4, .s5 { color: var(--red); }
+  .cls-INFERENCE { color: var(--purple); } .cls-METADATA { color: var(--blue); } .cls-UNKNOWN { color: var(--dim); }
+  #trace-controls { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  select, button { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--blue); }
+  .err { color: var(--red); padding: 10px; }
+</style>
+</head>
+<body>
+  <h1>GROK POOL <span id="ver"></span></h1>
+  <div class="sub" id="meta">connecting…</div>
+
+  <div class="grid" id="stats"></div>
+
+  <section>
+    <h2>Accounts</h2>
+    <div class="scroll"><table>
+      <thead><tr>
+        <th>#</th><th>email</th><th>status</th><th>in-flight</th><th>reqs</th>
+        <th>errors</th><th>cooldown</th><th>token expires</th><th>last error</th>
+      </tr></thead>
+      <tbody id="accounts"></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Recent requests</h2>
+    <div id="trace-controls">
+      trace level:
+      <select id="trace-level">
+        <option value="info">INFO</option>
+        <option value="debug">DEBUG</option>
+        <option value="wire">WIRE</option>
+      </select>
+      <button id="trace-refresh">refresh</button>
+      <span id="trace-note" style="color:var(--dim)"></span>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr>
+        <th>time</th><th>id</th><th>method</th><th>path</th><th>class</th><th>model</th>
+        <th>account</th><th>status</th><th>latency</th><th>attempts</th><th>error</th>
+      </tr></thead>
+      <tbody id="requests"></tbody>
+    </table></div>
+  </section>
+
+<script src="/dashboard/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+node_modules/
+.env
+data/
+traces/
+.grok-logins/
+*.log
+.grok-build-src/
+.discovery-home/
+.direct-home/
+.discovery-work/
+.discovery-out.json
+.discovery-err.txt
+stream-web/
+.zcode/

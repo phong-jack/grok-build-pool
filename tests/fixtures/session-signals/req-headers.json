@@ -1,0 +1,19 @@
+{
+  "x-grok-client-version": "1.0.13",
+  "x-grok-client-mode": "interactive",
+  "x-xai-token-auth": "***",
+  "content-type": "application/json",
+  "traceparent": "00-c599072dc184082fcc215f607a126f7f-c2d7567aca576d29-01",
+  "tracestate": "",
+  "accept": "*/*",
+  "user-agent": "grok-pager/1.0.13 grok-shell/1.0.13 (windows; x86_64)",
+  "accept-encoding": "gzip, br, deflate",
+  "x-grok-client-identifier": "grok-shell",
+  "x-authenticateresponse": "authenticate-response",
+  "x-grok-doom-loop-check": "1024",
+  "x-grok-exact-repetition-check": "64",
+  "authorization": "***",
+  "x-grok-user-id": "692aafc3-a8e1-461c-865e-397610820c3a",
+  "x-email": "karterdrewbpmpnv6320@l0z.org",
+  "x-grok-has-grok-code-access": "true"
+}

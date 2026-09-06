@@ -1,0 +1,29 @@
+{
+  "status": 200,
+  "headers": {
+    "date": "Sun, 06 Sep 2026 08:57:12 GMT",
+    "content-type": "text/event-stream",
+    "transfer-encoding": "chunked",
+    "connection": "keep-alive",
+    "cache-control": "no-cache",
+    "x-zero-data-retention": "true",
+    "x-ratelimit-limit-tokens": "1000000",
+    "x-ratelimit-remaining-tokens": "1000000",
+    "x-ratelimit-limit-requests": "21",
+    "x-ratelimit-remaining-requests": "21",
+    "strict-transport-security": "max-age=31536000; includeSubDomains",
+    "set-cookie": "***",
+    "x-request-id": "941a63da-f5d6-96bf-8926-cb6d8e7c641e",
+    "x-data-retention": "zdr",
+    "traceparent": "00-81110680794f92ce9bbdbbb3be79f6b0-e9b9ea0800007f7f-01",
+    "vary": "origin, access-control-request-method, access-control-request-headers",
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "*",
+    "cf-cache-status": "DYNAMIC",
+    "x-models-etag": "\"11134379283935054711\"",
+    "x-grok-context-window": "500000",
+    "server": "cloudflare",
+    "cf-ray": "a36c43c68caa0701-HKG",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  }
+}

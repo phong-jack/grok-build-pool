@@ -1,0 +1,22 @@
+{
+  "content-type": "application/json",
+  "x-xai-token-auth": "***",
+  "x-authenticateresponse": "authenticate-response",
+  "x-grok-client-mode": "interactive",
+  "x-grok-client-version": "1.0.13",
+  "x-grok-client-identifier": "grok-shell",
+  "user-agent": "grok-shell/1.0.13 (windows; x86_64)",
+  "x-grok-conv-id": "",
+  "x-grok-req-id": "",
+  "x-grok-model-override": "grok-4.6",
+  "x-grok-session-id": "",
+  "x-grok-agent-id": "",
+  "accept": "text/event-stream",
+  "accept-encoding": "gzip, br, deflate",
+  "x-grok-doom-loop-check": "1024",
+  "x-grok-exact-repetition-check": "64",
+  "authorization": "***",
+  "x-grok-user-id": "e1260024-7e6e-431e-ae06-7fb84bdf8b1e",
+  "x-email": "jaydatinsleydcthdj7782@l0z.org",
+  "x-grok-has-grok-code-access": "true"
+}

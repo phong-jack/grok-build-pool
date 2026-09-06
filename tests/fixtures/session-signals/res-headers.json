@@ -1,0 +1,16 @@
+{
+  "status": 200,
+  "headers": {
+    "date": "Sun, 06 Sep 2026 08:57:10 GMT",
+    "content-type": "application/json",
+    "transfer-encoding": "chunked",
+    "connection": "keep-alive",
+    "strict-transport-security": "max-age=31536000; includeSubDomains",
+    "cf-cache-status": "DYNAMIC",
+    "set-cookie": "***",
+    "content-encoding": "gzip",
+    "server": "cloudflare",
+    "cf-ray": "a36c43c198d50701-HKG",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  }
+}
