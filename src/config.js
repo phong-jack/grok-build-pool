@@ -38,6 +38,9 @@ export function loadConfig(env = process.env) {
     maxFailovers: Number(env.MAX_FAILOVERS ?? 4),
     stickyTtlMs: Number(env.STICKY_TTL_MS ?? 3_600_000),
     healthProbeIntervalMs: Number(env.HEALTH_PROBE_INTERVAL_MS ?? 600_000),
+    // Probe ACTIVE accounts for reasoning-summary capability and auto-promote
+    // accounts that stream summaries (premium-first picks them up automatically).
+    autoPremiumProbe: (env.AUTO_PREMIUM_PROBE ?? "true") !== "false",
     requestRetentionDays: Number(env.REQUEST_RETENTION_DAYS ?? 7),
     poolApiKey: env.POOL_API_KEY ?? "",
     trace: {

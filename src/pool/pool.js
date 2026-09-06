@@ -13,6 +13,12 @@ export class AccountPool {
     this.strategy = strategy;
     this.cursor = 0;
     this.inFlight = new Map();
+    // account ids proven (via probe) to stream reasoning summaries
+    this.autoPremium = new Set();
+  }
+
+  isPremium(account) {
+    return Boolean(account.premium) || this.autoPremium.has(account.id);
   }
 
   accounts() {
@@ -42,7 +48,7 @@ export class AccountPool {
     // rotation continues naturally over the rest whenever premiums are cooling
     // down / rate-limited (they rejoin automatically on heal).
     if (this.strategy === "premium-first") {
-      const premium = candidates.filter(c => c.premium);
+      const premium = candidates.filter(c => this.isPremium(c));
       if (premium.length) {
         const pick = premium[Math.floor(Math.random() * premium.length)];
         // keep the cursor moving so ordinary rotation stays fair for other traffic
@@ -124,6 +130,7 @@ export class AccountPool {
         request_count: s.requestCount ?? 0,
         error_count: s.errorCount ?? 0,
         consecutive_errors: s.consecutiveErrors ?? 0,
+        has_summaries: this.isPremium(a),
         last_used: s.lastUsed ?? null,
         last_error: s.lastError ?? null,
         token_expires_at: a.auth.expiresAt,
