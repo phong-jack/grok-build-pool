@@ -15,10 +15,24 @@ export class AccountPool {
     this.inFlight = new Map();
     // account ids proven (via probe) to stream reasoning summaries
     this.autoPremium = new Set();
+    // accounts observed NOT streaming summaries — overrides a stale premium flag
+    this.noSummary = new Set();
   }
 
   isPremium(account) {
+    if (this.noSummary.has(account.id)) return false;
     return Boolean(account.premium) || this.autoPremium.has(account.id);
+  }
+
+  // Single source of truth for probe outcomes (prober + admin API both call this).
+  setSummaryCapability(accountId, hasSummaries) {
+    if (hasSummaries) {
+      this.autoPremium.add(accountId);
+      this.noSummary.delete(accountId);
+    } else {
+      this.autoPremium.delete(accountId);
+      this.noSummary.add(accountId);
+    }
   }
 
   accounts() {

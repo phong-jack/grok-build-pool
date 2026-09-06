@@ -57,6 +57,24 @@
   </section>
 
   <section>
+    <h2>Premium / Thinking accounts</h2>
+    <div id="premium-controls" style="display:flex; gap:8px; align-items:flex-start; padding:8px 12px; border-bottom:1px solid var(--border); flex-wrap:wrap;">
+      <textarea id="premium-paste" rows="3" cols="46" placeholder="paste ~/.grok/auth.json content here (or a single account JSON)"></textarea>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <button id="premium-add">add premium account</button>
+        <button id="premium-export">export fresh tokens</button>
+        <span id="premium-note" style="color:var(--dim); max-width:340px; white-space:normal;"></span>
+      </div>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr>
+        <th>label</th><th>email</th><th>status</th><th>has_summaries</th><th>token expires</th><th>refresh</th><th>actions</th>
+      </tr></thead>
+      <tbody id="premium"></tbody>
+    </table></div>
+  </section>
+
+  <section>
     <h2>Recent requests</h2>
     <div id="trace-controls">
       trace level:

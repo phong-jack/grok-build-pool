@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import { extraId, loadExtraFile } from "./extra.js";
 
 // Credentials live in 9Router's SQLite (providerConnections, provider='grok-cli').
 // The pool opens it READ-ONLY: 9Router stays the single writer; the pool keeps
@@ -77,23 +78,16 @@ export class AccountSource {
   }
 
   // Accounts from an optional local JSON file (bypasses 9Router entirely).
-  // Format: [{ "email", "userId", "accessToken", "refreshToken", "expiresAt" }]
+  // Format: [{ "email", "userId", "accessToken", "refreshToken", "expiresAt", "premium" }]
   // IDs are namespaced "extra-*" so they never collide with 9Router rows.
   loadExtraAccounts() {
-    if (!this.extraPath) return [];
-    let parsed;
-    try {
-      parsed = JSON.parse(fs.readFileSync(this.extraPath, "utf8"));
-    } catch {
-      return [];
-    }
-    if (!Array.isArray(parsed)) return [];
+    const list = loadExtraFile(this.extraPath);
     const out = [];
-    for (const [i, e] of parsed.entries()) {
+    for (const [i, e] of list.entries()) {
       if (!e?.accessToken || !e?.email) continue;
-      const exp = e.expiresAt ? toDate(e.expiresAt) : null;
+      const exp = toDate(e.expiresAt);
       out.push({
-        id: e.id ?? `extra-${String(i).padStart(2, "0")}-${e.email}`,
+        id: extraId(e, i),
         label: e.label ?? String(100 + i),
         email: e.email,
         displayName: e.displayName ?? e.email,

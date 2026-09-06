@@ -280,3 +280,56 @@ test("traces: ndjson written with redacted auth", async () => {
   const raw = fs.readFileSync(file, "utf8");
   assert.ok(!raw.includes("Bearer acct-"), "bearer tokens never appear in traces");
 });
+
+// --- premium account management (kept last: mutates the pool's account set) ---
+
+test("premium mgmt: empty list initially", async () => {
+  const res = await fetch(`${poolBase}/pool/premium`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.deepEqual(data.accounts, []);
+});
+
+test("premium mgmt: add via pasted auth.json, list, probe, remove", async () => {
+  // 1. add — accepts an auth.json-shaped paste (issuer-keyed object)
+  const add = await fetch(`${poolBase}/pool/premium`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      auth: {
+        "https://auth.x.ai::b1a00492-0000": {
+          key: "extra-tok-abc123",
+          refresh_token: "extra-refresh-123",
+          user_id: "user-extra",
+          email: "premium@extra.test",
+          expires_at: new Date(Date.now() + 3600_000).toISOString()
+        }
+      },
+      premium: true
+    })
+  });
+  assert.equal(add.status, 200);
+  const listed = (await add.json()).accounts;
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].email, "premium@extra.test");
+  assert.equal(listed[0].has_summaries, true, "premium flag + no auto-demote yet");
+  assert.ok(!JSON.stringify(listed).includes("extra-tok-abc123"), "tokens never echoed back");
+
+  // 2. the account joins the live pool
+  const accounts = await (await fetch(`${poolBase}/pool/accounts`)).json();
+  assert.ok(accounts.accounts.some(a => a.email === "premium@extra.test"));
+
+  // 3. live probe (mock upstream streams no summaries -> NO)
+  const check = await fetch(`${poolBase}/pool/premium/check/${encodeURIComponent("premium@extra.test")}`, { method: "POST" });
+  assert.equal(check.status, 200);
+  const checkData = await check.json();
+  assert.equal(checkData.result, "NO");
+  assert.equal(checkData.has_summaries, false, "auto-demoted after probe without summaries");
+
+  // 4. remove
+  const del = await fetch(`${poolBase}/pool/premium/${encodeURIComponent("premium@extra.test")}`, { method: "DELETE" });
+  assert.equal(del.status, 200);
+  assert.equal((await del.json()).accounts.length, 0);
+  const after = await (await fetch(`${poolBase}/pool/accounts`)).json();
+  assert.ok(!after.accounts.some(a => a.email === "premium@extra.test"), "removed from live pool");
+});

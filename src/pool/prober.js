@@ -44,7 +44,8 @@ function probeToken(origin, token, timeoutMs = 15_000) {
 
 // Tiny streaming inference: resolves "THINKING" as soon as a summary delta is
 // observed (connection destroyed right away — the answer itself doesn't matter).
-function probeSummaries(cfg, account) {
+// Exported for the admin API (/pool/premium/check).
+export function probeSummaries(cfg, account) {
   return new Promise(resolve => {
     const body = JSON.stringify({
       model: "grok-4.6",
@@ -141,15 +142,15 @@ export function startProber({ pool, health, cfg, store }) {
           for (let i = 0; i < Math.min(BATCH, actives.length); i++) {
             const account = actives[probeCursor % actives.length];
             probeCursor = (probeCursor + 1) % Number.MAX_SAFE_INTEGER;
+            const wasPremium = pool.isPremium(account);
             const result = await probeSummaries(cfg, account);
-            if (result === "THINKING") {
-              if (!pool.autoPremium.has(account.id)) {
-                pool.autoPremium.add(account.id);
+            if (result === "THINKING" || result === "NO") {
+              pool.setSummaryCapability(account.id, result === "THINKING");
+              if (!wasPremium && pool.isPremium(account)) {
                 console.log(`[prober] account ${account.label} streams summaries -> auto-premium`);
+              } else if (wasPremium && !pool.isPremium(account)) {
+                console.log(`[prober] account ${account.label} no longer streams summaries -> demoted`);
               }
-            } else if (result === "NO" && pool.autoPremium.has(account.id)) {
-              pool.autoPremium.delete(account.id);
-              console.log(`[prober] account ${account.label} no longer streams summaries -> demoted`);
             }
             await new Promise(r => setTimeout(r, 700));
           }

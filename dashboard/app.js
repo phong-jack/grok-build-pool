@@ -17,6 +17,65 @@ function fmtTime(ts) {
 
 let lastTraceLevel = null;
 
+async function refreshPremium() {
+  try {
+    const data = await getJson("/pool/premium");
+    $("#premium").innerHTML = data.accounts.map(a => `
+      <tr>
+        <td>${a.label ?? "-"}</td>
+        <td title="${a.email}">${a.email}</td>
+        <td><span class="badge b-${a.status}">${a.status}</span></td>
+        <td>${a.has_summaries ? '<span class="s2">THINKING ✓</span>' : '<span style="color:var(--dim)">no</span>'}</td>
+        <td>${a.token_expires_at ? a.token_expires_at.slice(0, 16).replace("T", " ") : "-"}</td>
+        <td>${a.has_refresh_token ? "yes" : "no"}</td>
+        <td>
+          <button onclick="checkPremium('${a.email}')">check</button>
+          <button onclick="removePremium('${a.email}')">remove</button>
+        </td>
+      </tr>`).join("") || '<tr><td colspan="7" style="color:var(--dim)">no premium accounts — paste auth.json above</td></tr>';
+  } catch (error) {
+    $("#premium-note").textContent = error.message;
+  }
+}
+
+window.checkPremium = async function (email) {
+  $("#premium-note").textContent = `probing ${email}…`;
+  try {
+    const res = await fetch(`/pool/premium/check/${encodeURIComponent(email)}`, { method: "POST" });
+    const data = await res.json();
+    $("#premium-note").textContent = `${data.email}: ${data.result}`;
+    refreshPremium();
+  } catch (error) {
+    $("#premium-note").textContent = error.message;
+  }
+};
+
+window.removePremium = async function (email) {
+  if (!confirm(`remove ${email} from the premium pool?`)) return;
+  await fetch(`/pool/premium/${encodeURIComponent(email)}`, { method: "DELETE" });
+  refreshPremium();
+};
+
+$("#premium-add").addEventListener("click", async () => {
+  let parsed;
+  try { parsed = JSON.parse($("#premium-paste").value); }
+  catch { $("#premium-note").textContent = "invalid JSON"; return; }
+  const res = await fetch("/pool/premium", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ auth: parsed, premium: true })
+  });
+  const data = await res.json();
+  $("#premium-note").textContent = res.ok ? "account added ✓" : (data.error?.message ?? "failed");
+  if (res.ok) { $("#premium-paste").value = ""; refreshPremium(); }
+});
+
+$("#premium-export").addEventListener("click", async () => {
+  const res = await fetch("/pool/export-accounts", { method: "POST" });
+  const data = await res.json();
+  $("#premium-note").textContent = `exported: ${data.synced}/${data.total} synced from pool.db`;
+});
+
 async function refresh() {
   try {
     const [health, accounts, stats, requests] = await Promise.all([
@@ -47,7 +106,7 @@ async function refresh() {
     $("#accounts").innerHTML = accounts.accounts.map(a => `
       <tr>
         <td>${a.label}</td>
-        <td title="${a.email ?? ""}">${a.email ?? "-"}</td>
+        <td title="${a.email ?? ""}">${a.email ?? "-"}${a.has_summaries ? ' <span class="s2">✓thinking</span>' : ""}</td>
         <td><span class="badge b-${a.status}">${a.status}</span></td>
         <td>${a.in_flight}</td>
         <td>${a.request_count}</td>
@@ -94,4 +153,6 @@ $("#trace-level").addEventListener("change", async () => {
 $("#trace-refresh").addEventListener("click", refresh);
 
 refresh();
+refreshPremium();
 setInterval(refresh, 2000);
+setInterval(refreshPremium, 5000);
