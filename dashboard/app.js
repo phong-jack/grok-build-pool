@@ -56,10 +56,40 @@ window.removePremium = async function (email) {
   refreshPremium();
 };
 
+let currentLoginId = null;
+
+function watchLogin(id, mode) {
+  currentLoginId = id;
+  $("#premium-code-box").style.display = "flex";
+  const poll = setInterval(async () => {
+    let st;
+    try { st = await (await fetch(`/pool/login/status/${id}`)).json(); }
+    catch { return; }
+    if (st.status === "complete") {
+      clearInterval(poll);
+      $("#premium-code-box").style.display = "none";
+      $("#premium-note").textContent = `✓ ${st.email} logged in and added as premium`;
+      refreshPremium();
+    } else if (st.status === "error" || st.status === "expired" || st.status === "cancelled") {
+      clearInterval(poll);
+      $("#premium-code-box").style.display = "none";
+      $("#premium-note").textContent = `login ${st.status}: ${st.error ?? ""}`;
+    } else {
+      $("#premium-note").textContent = mode === "device"
+        ? `waiting for approval of code ${st.user_code ?? "?"} — the page auto-detects when done…`
+        : `waiting for the browser flow (callback ${st.redirect_uri ?? ""}) — if the xAI page shows a pairing code, paste it below…`;
+    }
+  }, 2000);
+}
+
 $("#premium-login").addEventListener("click", async () => {
   $("#premium-note").textContent = "starting OAuth flow…";
   try {
-    const res = await fetch("/pool/login/start", { method: "POST" });
+    const res = await fetch("/pool/login/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "loopback" })
+    });
     const data = await res.json();
     if (!res.ok) {
       $("#premium-note").textContent = data.error?.message ?? "login start failed";
@@ -67,17 +97,45 @@ $("#premium-login").addEventListener("click", async () => {
     }
     $("#premium-note").textContent = `complete the sign-in in the opened tab (callback: ${data.redirect_uri})…`;
     window.open(data.url, "_blank");
-    const poll = setInterval(async () => {
-      const st = await (await fetch(`/pool/login/status/${data.id}`)).json();
-      if (st.status === "complete") {
-        clearInterval(poll);
-        $("#premium-note").textContent = `✓ ${st.email} logged in and added as premium`;
-        refreshPremium();
-      } else if (st.status === "error" || st.status === "expired" || st.status === "cancelled") {
-        clearInterval(poll);
-        $("#premium-note").textContent = `login ${st.status}: ${st.error ?? ""}`;
-      }
-    }, 2000);
+    watchLogin(data.id, "loopback");
+  } catch (error) {
+    $("#premium-note").textContent = error.message;
+  }
+});
+
+$("#premium-login-device").addEventListener("click", async () => {
+  $("#premium-note").textContent = "requesting device code…";
+  try {
+    const res = await fetch("/pool/login/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "device" })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      $("#premium-note").textContent = data.error?.message ?? "device login failed";
+      return;
+    }
+    $("#premium-note").textContent = `open the page and approve code ${data.user_code}…`;
+    window.open(data.url, "_blank");
+    watchLogin(data.id, "device");
+  } catch (error) {
+    $("#premium-note").textContent = error.message;
+  }
+});
+
+$("#premium-code-submit").addEventListener("click", async () => {
+  const code = $("#premium-code").value.trim();
+  if (!code) { $("#premium-note").textContent = "paste the code first"; return; }
+  try {
+    const res = await fetch(`/pool/login/code/${encodeURIComponent(currentLoginId ?? "")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    $("#premium-note").textContent = res.ok ? `✓ ${data.email} added as premium` : (data.error?.message ?? "failed");
+    if (res.ok) { $("#premium-code-box").style.display = "none"; refreshPremium(); }
   } catch (error) {
     $("#premium-note").textContent = error.message;
   }

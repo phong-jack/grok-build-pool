@@ -192,14 +192,28 @@ export function createAdminHandler({ ctx }) {
       return json(res, 200, { ...result, file: ctx.cfg.accountsExtraPath });
     }
 
-    // --- web OAuth login (browser loopback flow, mirrors `grok login`) ---
+    // --- web OAuth login (loopback + RFC 8628 device flow, mirrors `grok login`) ---
 
     if (req.method === "POST" && pathname === "/pool/login/start") {
+      const input = await readJson(req);
       try {
-        const started = await loginManager.start();
+        const started = input.mode === "device"
+          ? await loginManager.startDevice()
+          : await loginManager.start();
         return json(res, 200, started);
       } catch (error) {
         return json(res, 502, { error: { message: `login start failed: ${error.message}` } });
+      }
+    }
+
+    const loginCode = pathname.match(/^\/pool\/login\/code\/([A-Za-z0-9-]+)$/);
+    if (req.method === "POST" && loginCode) {
+      const input = await readJson(req);
+      try {
+        const entry = await loginManager.submitCode(loginCode[1], String(input.code ?? ""));
+        return json(res, 200, { ok: true, email: entry.email });
+      } catch (error) {
+        return json(res, 400, { error: { message: error.message } });
       }
     }
 

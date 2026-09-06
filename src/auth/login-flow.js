@@ -13,6 +13,8 @@ import crypto from "node:crypto";
 
 const XAI_ISSUER = "https://auth.x.ai";
 const CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
+const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+const DEVICE_SLOW_DOWN_INCREMENT_MS = 5_000;
 // default_oauth2_scopes() from the CLI source — workspaces:* is what makes
 // accounts thinking-capable.
 const SCOPES = [
@@ -216,7 +218,7 @@ export function createLoginManager({ cfg, onAccountAdded }) {
   function status(id) {
     const login = logins.get(id);
     if (!login) return null;
-    const { id: _i, state, nonce, code_verifier, redirect_uri, authUrl, ...safe } = login;
+    const { id: _i, state, nonce, code_verifier, device_code, redirect_uri, authUrl, ...safe } = login;
     return safe;
   }
 
@@ -230,6 +232,129 @@ export function createLoginManager({ cfg, onAccountAdded }) {
     return true;
   }
 
+  // Path B from the CLI source: the xAI authorize page sometimes shows a code
+  // for the user to paste into the app instead of auto-redirecting. Exchange
+  // that bare code with our stored code_verifier (state check skipped, same
+  // as the CLI's bare-code path).
+  async function submitCode(id, code) {
+    const login = logins.get(id);
+    if (!login || login.status !== "pending") throw new Error("no pending login for this id");
+    if (!code) throw new Error("empty code");
+    const discovery = await discover();
+    const entry = await exchangeCode(discovery.token_endpoint, code.trim(), login);
+    login.status = "complete";
+    login.email = entry.email;
+    login.account = entry;
+    onAccountAdded?.(entry);
+    return entry;
+  }
+
+  // RFC 8628 device flow (mirrors device_code.rs): request device_code, open
+  // verification_uri_complete, poll the token endpoint until approved.
+  async function startDevice() {
+    const discovery = await discover();
+    const res = await fetch(`${XAI_ISSUER}/oauth2/device/code`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-grok-client-version": cfg.headers.clientVersion,
+        "x-grok-client-surface": "ui"
+      },
+      body: new URLSearchParams({
+        client_id: CLIENT_ID,
+        scope: SCOPES.join(" "),
+        referrer: "grok-build"
+      }),
+      signal: AbortSignal.timeout(20_000)
+    });
+    if (res.status === 404) throw new Error("device-code login not enabled by xAI — use the browser flow");
+    if (!res.ok) throw new Error(`device code request HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const d = await res.json();
+    if (!d.device_code || !d.user_code || !d.verification_uri) throw new Error("device code response incomplete");
+
+    const id = crypto.randomUUID();
+    const login = {
+      id,
+      mode: "device",
+      status: "pending",
+      device_code: d.device_code,
+      user_code: d.user_code,
+      pollIntervalMs: (Number(d.interval) || 5) * 1000,
+      url: d.verification_uri_complete ?? d.verification_uri,
+      email: null,
+      error: null,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + (Number(d.expires_in) || 600) * 1000
+    };
+    logins.set(id, login);
+    scheduleDevicePoll(discovery, login);
+    return { id, mode: "device", url: login.url, user_code: login.user_code, expires_at: new Date(login.expiresAt).toISOString() };
+  }
+
+  function scheduleDevicePoll(discovery, login) {
+    const poll = async () => {
+      if (login.status !== "pending") return;
+      if (Date.now() > login.expiresAt) {
+        login.status = "expired";
+        login.error = "device code expired";
+        return;
+      }
+      try {
+        const res = await fetch(discovery.token_endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "x-grok-client-version": cfg.headers.clientVersion
+          },
+          body: new URLSearchParams({
+            grant_type: DEVICE_GRANT_TYPE,
+            device_code: login.device_code,
+            client_id: CLIENT_ID
+          }),
+          signal: AbortSignal.timeout(20_000)
+        });
+        if (res.ok) {
+          const tokens = await res.json();
+          if (!tokens.access_token) throw new Error("device token response has no access_token");
+          let email = null;
+          let userId = null;
+          if (tokens.id_token) {
+            try {
+              const payload = JSON.parse(Buffer.from(tokens.id_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+              email = payload.email ?? null;
+              userId = payload.sub ?? null;
+            } catch {}
+          }
+          login.status = "complete";
+          login.email = email ?? `user-${login.id.slice(0, 6)}`;
+          login.account = {
+            email: login.email,
+            userId,
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token ?? null,
+            expiresAt: new Date(Date.now() + (Number(tokens.expires_in) || 21600) * 1000).toISOString()
+          };
+          onAccountAdded?.(login.account);
+          return;
+        }
+        const err = await res.json().catch(() => ({}));
+        if (err.error === "authorization_pending") {
+          setTimeout(poll, login.pollIntervalMs);
+        } else if (err.error === "slow_down") {
+          login.pollIntervalMs += DEVICE_SLOW_DOWN_INCREMENT_MS;
+          setTimeout(poll, login.pollIntervalMs);
+        } else {
+          login.status = "error";
+          login.error = err.error ?? `token poll HTTP ${res.status}`;
+        }
+      } catch (error) {
+        if (login.status === "pending") setTimeout(poll, login.pollIntervalMs);
+        else { login.status = "error"; login.error = error.message; }
+      }
+    };
+    setTimeout(poll, login.pollIntervalMs);
+  }
+
   // periodic GC of finished logins
   setInterval(() => {
     const now = Date.now();
@@ -238,5 +363,5 @@ export function createLoginManager({ cfg, onAccountAdded }) {
     }
   }, 600_000).unref();
 
-  return { start, status, cancel };
+  return { start, startDevice, submitCode, status, cancel };
 }

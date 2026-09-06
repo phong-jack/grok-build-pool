@@ -62,9 +62,14 @@
       <textarea id="premium-paste" rows="3" cols="46" placeholder="paste ~/.grok/auth.json content here (or a single account JSON)"></textarea>
       <div style="display:flex; flex-direction:column; gap:6px;">
         <button id="premium-login">Login with xAI (browser)</button>
+        <button id="premium-login-device">Login with device code</button>
         <button id="premium-add">add premium account</button>
         <button id="premium-export">export fresh tokens</button>
         <span id="premium-note" style="color:var(--dim); max-width:340px; white-space:normal;"></span>
+        <div id="premium-code-box" style="display:none; flex-direction:column; gap:4px;">
+          <input id="premium-code" placeholder="paste the code from the xAI page" style="background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 6px; font:inherit;">
+          <button id="premium-code-submit">submit pairing code</button>
+        </div>
       </div>
     </div>
     <div class="scroll"><table>
