@@ -31,7 +31,7 @@ function thinkingUptime24h(ndjsonPath) {
       const kinds = r.sse_event_kinds ?? [];
       if (kinds.includes("response.incomplete")) continue; // title-gen etc.
       total++;
-      if (kinds.includes("reasoning_summary_text.delta")) withSummaries++;
+      if (kinds.includes("response.reasoning_summary_text.delta") || kinds.includes("response.reasoning_text.delta")) withSummaries++;
     }
     return {
       pct: total ? Math.round((withSummaries / total) * 1000) / 10 : null,
