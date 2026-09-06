@@ -273,7 +273,7 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
       ctx.cfg.holdForPremiumMs > 0 &&
       classification.cls === "INFERENCE" &&
       held.size < 3 &&
-      classification.model && ctx.cfg.premiumModels.includes(classification.model)
+      ctx.pool.wantsPremiumRoute(classification)
     ) {
       const cooling = ctx.pool.findPremiumInCooldown(triedAccounts);
       if (cooling && cooling.remaining <= ctx.cfg.holdForPremiumMs) {

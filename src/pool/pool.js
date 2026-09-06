@@ -25,6 +25,13 @@ export class AccountPool {
     return Boolean(account.premium) || this.autoPremium.has(account.id);
   }
 
+  // should this request be served by a premium (thinking) account?
+  wantsPremiumRoute(classification) {
+    return Boolean(
+      classification?.model &&
+      (this.premiumModels.includes("*") || this.premiumModels.includes(classification.model)));
+  }
+
   // Single source of truth for probe outcomes (prober + admin API both call this).
   setSummaryCapability(accountId, hasSummaries) {
     if (hasSummaries) {
@@ -133,8 +140,7 @@ export class AccountPool {
     //    accounts serve only requests whose model is in PREMIUM_MODELS —
     //    keeping premium token burn as low as possible.
     if (this.strategy === "reserve" && usable.length) {
-      const wantsPremium = Boolean(
-        classification?.model && this.premiumModels.includes(classification.model));
+      const wantsPremium = this.wantsPremiumRoute(classification);
       const premiumGroup = usable.filter(a => this.isPremium(a));
       const normalGroup = usable.filter(a => !this.isPremium(a));
       const group = wantsPremium
