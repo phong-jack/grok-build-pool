@@ -14,6 +14,7 @@
     "accounts": "node src/accounts.js",
     "smoke": "node scripts/smoke.js",
     "check-thinking": "node scripts/check-thinking.js",
+    "export-accounts": "node scripts/export-accounts.js",
     "test": "node --test tests/golden.test.js"
   },
   "dependencies": {
