@@ -44,7 +44,9 @@ function probeToken(origin, token, timeoutMs = 15_000) {
 
 // Tiny streaming inference: resolves "THINKING" as soon as a summary delta is
 // observed (connection destroyed right away — the answer itself doesn't matter).
-// Exported for the admin API (/pool/premium/check).
+// Returns "THINKING" | "NO" only for genuine completed responses — HTTP errors
+// (429 throttle, 5xx...) return "HTTP <status>" so callers never demote an
+// account based on a throttled probe.
 export function probeSummaries(cfg, account) {
   return new Promise(resolve => {
     const body = JSON.stringify({
@@ -81,16 +83,24 @@ export function probeSummaries(cfg, account) {
     const req = transport.request(
       { hostname: url.hostname, port: url.port || undefined, path: url.pathname, method: "POST", headers },
       res => {
+        let raw = "";
         res.on("data", c => {
-          if (c.toString("latin1").includes("reasoning_summary_text.delta")) {
+          raw += c.toString("latin1");
+          if (raw.includes("reasoning_summary_text.delta")) {
             req.destroy();
             finish("THINKING");
           }
         });
-        res.on("end", () => finish("NO"));
+        res.on("end", () => {
+          if (res.statusCode !== 200) finish(`HTTP ${res.statusCode}`);
+          else {
+            const m = raw.match(/"status":"(completed|incomplete|failed)"/);
+            finish(m ? m[1].toUpperCase() : "NO");
+          }
+        });
       }
     );
-    req.on("error", () => finish("error"));
+    req.on("error", e => finish(`ERR ${e.message}`));
     req.setTimeout(60_000, () => { req.destroy(); finish("timeout"); });
     req.write(body);
     req.end();
