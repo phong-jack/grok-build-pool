@@ -58,15 +58,19 @@ ROUTER_DB_PATH=C:\Users\you\AppData\Roaming\9router\db\data.sqlite
 All `grok-cli` accounts join the pool. The database is opened **read-only** — 9Router stays the
 single writer, and account changes there are picked up within 30 seconds.
 
-**b) Paste an account into the dashboard (recommended for your "Thinking" account).**
+**b) Log in straight from the dashboard (recommended for your "Thinking" account).**
 
 1. Open <http://127.0.0.1:20129/dashboard> → section **Premium / Thinking accounts**
-2. Open `~/.grok/auth.json`, copy the **whole file content**
-3. Paste it into the textarea → click **add premium account**
-4. The account appears in the table with `has_summaries` — click **check** to verify it live-streams
-   reasoning summaries (result: `THINKING` or `NO`)
+2. Click **Login with xAI (browser)** — a tab opens on xAI's real login page
+   (this is the exact OAuth flow `grok login` performs: PKCE + loopback callback
+   + full scopes including `workspaces:*`, which is what makes accounts
+   Thinking-capable)
+3. Sign in → the callback lands on the pool, tokens are saved to
+   `data/accounts.extra.json` as premium, and the account joins the pool
+   immediately
 
-This writes `data/accounts.extra.json`. You can also edit that file directly:
+You can also paste `~/.grok/auth.json` into the textarea and click **add premium
+account**, or edit `data/accounts.extra.json` directly:
 
 ```json
 [
@@ -199,6 +203,9 @@ POST   /pool/premium                    add account  {"auth": <auth.json or entr
 DELETE /pool/premium/<id-or-email>      remove account
 POST   /pool/premium/check/<email>      live reasoning-summary probe
 POST   /pool/export-accounts            sync freshest tokens into the extra file
+POST   /pool/login/start                start a browser OAuth login (PKCE, mirrors `grok login`)
+GET    /pool/login/status/<id>          poll a login attempt
+POST   /pool/login/cancel/<id>          cancel a pending login
 GET    /pool/config                     current config
 POST   /pool/config                     {"trace": {"level": "wire", ...}}
 ```

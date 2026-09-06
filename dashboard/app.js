@@ -56,6 +56,33 @@ window.removePremium = async function (email) {
   refreshPremium();
 };
 
+$("#premium-login").addEventListener("click", async () => {
+  $("#premium-note").textContent = "starting OAuth flow…";
+  try {
+    const res = await fetch("/pool/login/start", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      $("#premium-note").textContent = data.error?.message ?? "login start failed";
+      return;
+    }
+    $("#premium-note").textContent = `complete the sign-in in the opened tab (callback: ${data.redirect_uri})…`;
+    window.open(data.url, "_blank");
+    const poll = setInterval(async () => {
+      const st = await (await fetch(`/pool/login/status/${data.id}`)).json();
+      if (st.status === "complete") {
+        clearInterval(poll);
+        $("#premium-note").textContent = `✓ ${st.email} logged in and added as premium`;
+        refreshPremium();
+      } else if (st.status === "error" || st.status === "expired" || st.status === "cancelled") {
+        clearInterval(poll);
+        $("#premium-note").textContent = `login ${st.status}: ${st.error ?? ""}`;
+      }
+    }, 2000);
+  } catch (error) {
+    $("#premium-note").textContent = error.message;
+  }
+});
+
 $("#premium-add").addEventListener("click", async () => {
   let parsed;
   try { parsed = JSON.parse($("#premium-paste").value); }

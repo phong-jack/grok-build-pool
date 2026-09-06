@@ -8,6 +8,22 @@
 
 import { addExtraAccount, loadExtraFile, removeExtraAccount, syncExtraFromOverrides } from "../accounts/extra.js";
 import { probeSummaries } from "../pool/prober.js";
+import { createLoginManager } from "../auth/login-flow.js";
+
+// web-dashboard OAuth login manager (adds premium accounts without the CLI).
+// deps are wired lazily in bindLoginDeps() because this module initializes
+// before the ctx exists.
+let cfgAccountsExtraPath = null;
+let sourceRefresh = null;
+const loginCfg = { headers: { clientVersion: "1.0.13" } };
+const loginManager = createLoginManager({
+  cfg: loginCfg,
+  onAccountAdded: entry => {
+    if (!cfgAccountsExtraPath) return;
+    addExtraAccount(cfgAccountsExtraPath, { ...entry, premium: true });
+    sourceRefresh?.(true);
+  }
+});
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -74,6 +90,9 @@ function premiumList(ctx) {
 }
 
 export function createAdminHandler({ ctx }) {
+  cfgAccountsExtraPath = ctx.cfg.accountsExtraPath;
+  sourceRefresh = r => ctx.source.refresh(r);
+  loginCfg.headers.clientVersion = ctx.cfg.headers.clientVersion;
   return async function handleAdmin(req, res, pathname, query) {
     const { pool, store, trace, sticky } = ctx;
 
@@ -171,6 +190,29 @@ export function createAdminHandler({ ctx }) {
     if (req.method === "POST" && pathname === "/pool/export-accounts") {
       const result = syncExtraFromOverrides(ctx.cfg.accountsExtraPath, store.loadAccountStates());
       return json(res, 200, { ...result, file: ctx.cfg.accountsExtraPath });
+    }
+
+    // --- web OAuth login (browser loopback flow, mirrors `grok login`) ---
+
+    if (req.method === "POST" && pathname === "/pool/login/start") {
+      try {
+        const started = await loginManager.start();
+        return json(res, 200, started);
+      } catch (error) {
+        return json(res, 502, { error: { message: `login start failed: ${error.message}` } });
+      }
+    }
+
+    const loginStatus = pathname.match(/^\/pool\/login\/status\/([A-Za-z0-9-]+)$/);
+    if (req.method === "GET" && loginStatus) {
+      const status = loginManager.status(loginStatus[1]);
+      if (!status) return json(res, 404, { error: { message: "unknown login id" } });
+      return json(res, 200, status);
+    }
+
+    const loginCancel = pathname.match(/^\/pool\/login\/cancel\/([A-Za-z0-9-]+)$/);
+    if (req.method === "POST" && loginCancel) {
+      return json(res, loginManager.cancel(loginCancel[1]) ? 200 : 404, { ok: true });
     }
 
     return json(res, 404, { error: { message: `unknown admin route ${pathname}` } });
