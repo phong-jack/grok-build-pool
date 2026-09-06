@@ -1,10 +1,9 @@
-# grok-pool — proxy pool cho Grok Build, giữ nguyên Thinking
+# grok-pool
 
-Catch-all reverse proxy + account pool đặt giữa **Grok Build** (CLI `grok`) và `https://cli-chat-proxy.grok.com`.
-CLI vẫn làm toàn bộ việc native (planning, tool calls, shell, filesystem, subagents, context, sessions) —
-pool chỉ là **gateway thuần**: route, trace, và gom nhiều OAuth account lại để dùng chung 1 Grok Build.
-
-**Và quan trọng nhất: thinking vẫn hiện.** (Chi tiết ở mục [Giữ thinking qua pool](#giữ-thinking-qua-pool).)
+A transparent catch-all proxy and account pool for **Grok Build** (the `grok` CLI). It sits between
+the CLI and `https://cli-chat-proxy.grok.com` — the CLI keeps doing everything native (planning, tool
+calls, shell, filesystem, subagents, context, sessions), while the pool routes every request across
+your OAuth accounts, traces all traffic, and **keeps the Thinking blocks visible**.
 
 ```
 GROK BUILD ──> grok-pool :20129 ──┬──> account 01 ──┐
@@ -12,65 +11,71 @@ GROK BUILD ──> grok-pool :20129 ──┬──> account 01 ──┐
               sticky / health)    └──> account N  ──┘
 ```
 
-## Ai cần cái này?
+## Why
 
-- Bạn có **nhiều account Grok** (vd quản lý qua 9Router bằng device-code login) và muốn
-  1 Grok Build dùng chung cả pool: hết slot account này tự chuyển account khác.
-- Bạn muốn thấy **thinking** (reasoning summary) trong TUI — thứ mà upstream chỉ cấp cho **một số account**,
-  không phải tất cả (xem [cơ chế](#vì-sao-thinking-biến-mất)).
-- Bạn muốn nhìn thấy **mọi request** CLI gửi lên: endpoint nào, account nào phục vụ, latency, SSE events, lỗi gì —
-  kèm dashboard realtime.
+- You manage **multiple Grok accounts** (e.g. via [9Router](https://github.com/) device-code logins)
+  and want one Grok Build to use them all — when one is rate-limited, requests fail over to the rest
+  automatically.
+- You want **Thinking** (reasoning summaries) to keep rendering in the TUI. Upstream only streams
+  summaries for *some* accounts — the pool lets you pin those with a `premium-first` strategy.
+  See [Keeping Thinking alive](#keeping-thinking-alive).
+- You want to see **every request** the CLI makes: endpoints, serving account, latency, SSE events,
+  errors — with a realtime dashboard.
 
-## Yêu cầu
+## Requirements
 
-- **Node.js >= 22.12** (dùng `node:sqlite` built-in, không cần build gì thêm)
-- Grok Build CLI (`grok`) đã cài và đã login ít nhất 1 account
-- (Tùy chọn) 9Router đang chạy và có account `grok-cli` — pool đọc account từ DB của 9Router
+- **Node.js >= 22.12** (uses the built-in `node:sqlite`; no build step)
+- Grok Build CLI installed and logged in with at least one account
+- Optional: [9Router](https://github.com/) running with `grok-cli` accounts — the pool reads them
+  directly from its database
 
-## Cài đặt & chạy
+## Quick start
 
-```powershell
+```bash
 git clone https://github.com/phong-jack/grok-build-pool.git
 cd grok-build-pool
 npm install
-copy .env.example .env   # sửa ROUTER_DB_PATH nếu 9Router ở chỗ khác
+cp .env.example .env   # adjust ROUTER_DB_PATH if your 9Router lives elsewhere
 npm start
 ```
 
-Pool lên ở `http://127.0.0.1:20129` — dashboard: <http://127.0.0.1:20129/dashboard>.
+The pool listens on `http://127.0.0.1:20129` — dashboard at
+<http://127.0.0.1:20129/dashboard>.
 
-## Trỏ Grok Build vào pool
+## Pointing Grok Build at the pool
 
-**Cách 1 — env var (không đụng config):**
+**Option A — environment variable (no config changes):**
 
 ```powershell
 $env:GROK_CLI_CHAT_PROXY_BASE_URL = "http://127.0.0.1:20129/v1"
 grok
 ```
 
-**Cách 2 — nếu file `~/.grok/config.toml` của bạn có `[model."..."]` tự định nghĩa `base_url`**
-(thường trỏ vào 9Router): entry đó sẽ **ghi đè** env var. Sửa `base_url` của model đó thành
-`http://127.0.0.1:20129/v1`, hoặc chạy Grok Build với `GROK_HOME` riêng chứa `auth.json` (copy từ
-`~/.grok/auth.json`) nhưng **không** có `config.toml` — session lưu trong `GROK_HOME` đó nên
-`grok --continue` phải chạy từ cùng thư mục đó.
+**Option B — if your `~/.grok/config.toml` defines a custom `[model."..."]` with a `base_url`**
+(e.g. pointing at 9Router): that entry **overrides** the env var. Either edit its `base_url` to
+`http://127.0.0.1:20129/v1`, or run Grok Build with a dedicated `GROK_HOME` containing a copy of
+`~/.grok/auth.json` but **no** `config.toml`. Note that sessions are stored inside `GROK_HOME`, so
+`grok --continue` must run from the same home.
 
-Muốn quay về như cũ: đóng terminal (env var không lưu lâu dài) hoặc trả lại `base_url`.
+To go back to normal, just close the terminal (env vars are not persistent) or restore `base_url`.
 
-## Account lấy từ đâu?
+## Accounts
 
-| Nguồn | Cách cấu hình | Ghi |
+The pool merges accounts from two sources:
+
+| Source | Configuration | Notes |
 |---|---|---|
-| **9Router** (mặc định) | `ROUTER_DB_PATH` trỏ vào SQLite của 9Router (vd `C:\Users\<bạn>\AppData\Roaming\9router\db\data.sqlite`) | Pool mở **read-only**, không bao giờ ghi — 9Router vẫn là chủ. Account `grok-cli` trong đó tự vào pool |
-| **File riêng** | `data/accounts.extra.json` (xem format bên dưới) | Dành cho account ngoài 9Router — vd account "thinking" của bạn |
-| **Login thêm** | `npm run login -- <tên>` — chạy `grok login` thật trong GROK_HOME riêng rồi tự import vào 9Router DB | Cần tương tác browser/device flow |
+| **9Router** (default) | `ROUTER_DB_PATH` pointing at 9Router's SQLite (e.g. `C:\Users\you\AppData\Roaming\9router\db\data.sqlite`) | Opened **read-only** — 9Router stays the single writer. All `grok-cli` accounts in it join the pool |
+| **Extra accounts file** | `data/accounts.extra.json` (format below) | For accounts outside 9Router — e.g. your "thinking-capable" account |
+| **Login importer** | `npm run login -- <name>` — runs a real `grok login` in an isolated `GROK_HOME` and imports the result into 9Router's DB | Interactive browser/device flow |
 
-`data/accounts.extra.json`:
+`data/accounts.extra.json` format:
 
 ```json
 [
   {
-    "email": "ban@gmail.com",
-    "userId": "user-uuid-từ-auth.json",
+    "email": "you@gmail.com",
+    "userId": "user-uuid-from-auth.json",
     "accessToken": "eyJ...",
     "refreshToken": "eyJ...",
     "expiresAt": "2026-09-06T15:57:05Z",
@@ -79,79 +84,88 @@ Muốn quay về như cũ: đóng terminal (env var không lưu lâu dài) hoặ
 ]
 ```
 
-Lấy 4 field đầu từ `~/.grok/auth.json` (key `https://auth.x.ai::...`): `key` → `accessToken`,
-`refresh_token` → `refreshToken`, `user_id` → `userId`. Token hết hạn pool **tự refresh** (OIDC
-`auth.x.ai`, giữ account sống vô hạn khi có refresh token) — bạn không phải làm gì thêm.
+Take the fields from `~/.grok/auth.json` (key `https://auth.x.ai::...`): `key` → `accessToken`,
+`refresh_token` → `refreshToken`, `user_id` → `userId`. When the access token expires the pool
+**refreshes it automatically** (OIDC discovery against `auth.x.ai`), so an account with a refresh
+token stays operational indefinitely — no manual re-login.
 
-## Giữ thinking qua pool
+## Keeping Thinking alive
 
-**Phát hiện quan trọng:** upstream chỉ stream **reasoning summary** (cái làm nên block "Thought for Xs"
-trong TUI) cho **một số account nhất định** — xét theo lý lịch account phía server, **không** liên quan
-tới tier hiển thị trong `/v1/user` (luôn null), không liên quan model (grok-4.5/4.6 đều vậy), và không
-liên quan pool (gọi thẳng không qua pool cũng y nguyên). Account mới tạo/còn "sạch" thường có summaries;
-account bị dùng automation nhiều thường bị tắt.
+**Key finding:** upstream only streams **reasoning summaries** (what renders as the "Thought for Xs"
+block in the TUI) for *certain accounts*. It is decided server-side per account — it is **not** the
+tier shown in `/v1/user` (always `null`), it is not model-dependent (`grok-4.5` and `grok-4.6`
+behave identically), and it is not caused by proxying (direct calls behave the same). Fresh,
+cleanly-used accounts typically get summaries; accounts with a heavy automation history usually
+don't.
 
-Vì vậy pool có strategy **`premium-first`**:
+The pool ships a **`premium-first`** strategy for exactly this:
 
-1. Đánh dấu account nào có thinking: thêm `"premium": true` trong `data/accounts.extra.json`.
-2. Set trong `.env`:
+1. Mark the accounts that still show Thinking: add `"premium": true` in `data/accounts.extra.json`.
+2. Set in `.env`:
    ```
    POOL_STRATEGY=premium-first
    ```
-3. Kết quả: **mọi inference ưu tiên đi qua account premium** → thinking luôn hiện. Khi premium bị
-   429/cooldown/lỗi → request tự failover xuống xoay các account còn lại (hội thoại **không gãy** —
-   `encrypted_content` của reasoning không khóa theo account, đã test thực tế). Premium hồi → tự gánh lại.
+3. Every inference now prefers the premium account → Thinking keeps rendering. When the premium
+   account is rate-limited or cooling down, requests fail over to the remaining accounts and the
+   rotation continues; when it recovers, it takes over again. Conversations never break across the
+   switch — reasoning `encrypted_content` is not account-bound (verified in practice).
 
-Lưu ý vật lý: turn phục vụ bởi account thường sẽ không có thinking text (mọi thứ khác vẫn bình thường).
-Muốn thinking 100% + chia tải sâu hơn thì thêm **nhiều** account premium vào file — pool sẽ xoay vòng
-giữa các premium trước, rồi tới nhóm dự phòng.
+Physical limit: a turn served by a non-premium account has no thinking text (everything else works
+normally). For 100% Thinking plus deeper load sharing, add **several** premium accounts — the pool
+rotates among premiums first, then falls to the rest.
 
-## Vì sao thinking "biến mất"?
+## Why Thinking "disappears"
 
-(Điều tra từ source Rust công khai của Grok Build + wire-capture thật.)
+(From investigating the public Grok Build Rust source plus live wire captures.)
 
-- Thinking text chỉ render từ SSE events `response.reasoning_summary_text.delta` — upstream quyết định
-  gửi hay không, theo account.
-- `/v1/user` luôn trả `subscriptionTier: null` → CLI coi là Free và chèn banner
-  `[Click here to Upgrade]` (tip do server inject, ai cũng thấy). Pool vá **đúng 1 field** này
-  (`GROK_POOL_SUBSCRIPTION_TIER=SuperGrok`, tắt bằng giá trị rỗng) — ngoài ra không sửa gì khác.
+- Thinking text renders only from SSE `response.reasoning_summary_text.delta` events — upstream
+  decides per account whether to send them.
+- `/v1/user` always reports `subscriptionTier: null`, so the CLI treats the session as Free and
+  injects a `[Click here to Upgrade]` tip (server-side injected for everyone). The pool patches
+  **that one field** (`GROK_POOL_SUBSCRIPTION_TIER=SuperGrok`; set empty to disable) and touches
+  nothing else.
 
-## Tính năng
+## Features
 
-- **Catch-all**: mọi method/path/query đều forward — không whitelist, endpoint mới của CLI tự chạy
-- **Protocol preservation**: body raw bytes, SSE pipe byte-exact, headers 2 chiều (lọc hop-by-hop),
-  không auto-decompress — Grok Build không biết mình đang đi qua pool
-- **Routing**: `premium-first` | `round-robin` | `least-used` | `random`; sticky theo
-  `previous_response_id` + session UUID (failover giữa chừng không vỡ hội thoại)
-- **Health**: ACTIVE / COOLDOWN / RATE_LIMITED (theo Retry-After) / DEGRADED / DEAD / AUTH_FAILED;
-  403 chỉ cooldown ngắn (thường là lỗi theo-request, không phải chết account); prober định kỳ hồi sinh
-- **Token refresh tự động** (OIDC discovery `auth.x.ai`), refresh token lưu override trong pool DB —
-  9Router DB giữ read-only
-- **Trace**: `GROK_TRACE=info|debug|wire` — ndjson có cấu trúc + wire dump per-request, redact token/cookie
-- **Dashboard** realtime: trạng thái từng account, request inspector (status/latency/attempts/error)
-- **Admin API**: `GET /pool/health|accounts|requests|stats|config`, `POST /pool/config` (đổi trace level live)
+- **Catch-all**: every method, path and query is forwarded — no endpoint whitelist, so new CLI
+  endpoints just work
+- **Protocol preservation**: raw body bytes, byte-exact SSE piping, two-directional header copying
+  (hop-by-hop filtered), no auto-decompression — Grok Build cannot tell it is going through a pool
+- **Routing**: `premium-first` | `round-robin` | `least-used` | `random`; sticky routing by
+  `previous_response_id` and session UUID (mid-conversation failover never corrupts sessions)
+- **Health**: ACTIVE / COOLDOWN / RATE_LIMITED (Retry-After aware) / DEGRADED / DEAD / AUTH_FAILED;
+  403 is treated as a short cooldown (usually request-scoped, not a dead account); a periodic prober
+  heals accounts automatically
+- **Automatic token refresh** via OIDC discovery (`auth.x.ai`); refreshed tokens persist as
+  overrides in the pool's own DB — the 9Router database stays read-only
+- **Tracing**: `GROK_TRACE=info|debug|wire` — structured ndjson plus per-request wire dumps, secrets
+  redacted
+- **Realtime dashboard**: per-account status, request inspector (status / latency / attempts / errors)
+- **Admin API**: `GET /pool/health|accounts|requests|stats|config`, `POST /pool/config` (live trace
+  level changes)
 
-## Kiểm tra
+## Testing
 
-```powershell
-npm test          # golden tests: passthrough byte-identical, sticky, failover, no-retry-400... (node --test)
-npm run smoke     # kiểm tra pool đang chạy (thêm --upstream để bắn 1 request thật)
+```bash
+npm test        # golden tests: byte-identical passthrough, sticky routing, failover, no-retry-on-400 (node --test)
+npm run smoke   # check a running pool (add --upstream for one real GET /v1/models through the pool)
 ```
 
-## Câu hỏi thường gặp
+## FAQ
 
-**Pool có làm chậm / hỏng gì không?** Không — body đi nguyên bản, stream pipe thẳng, chỉ thêm vài ms
-ở local. Failover chỉ xảy ra trước byte đầu tiên nên SSE không bao giờ bị chen ngang.
+**Does the pool add latency or break anything?** No — bodies pass through as raw bytes and streams
+are piped directly, adding only a local hop. Failover happens strictly before the first response
+byte, so SSE streams are never interleaved.
 
-**Tôi không dùng 9Router?** Bỏ `ROUTER_DB_PATH` trỏ DB — pool lên với 0 account từ 9Router, dùng
-hoàn toàn bằng `data/accounts.extra.json`.
+**I don't use 9Router.** Remove/ignore `ROUTER_DB_PATH` — the pool starts with zero 9Router
+accounts and works entirely off `data/accounts.extra.json`.
 
-**Token sống bao lâu?** Access token ~6h, nhưng pool tự refresh bằng refresh_token — account có
-refresh token là sống vô hạn theo nghĩa vận hành.
+**How long do tokens live?** Access tokens last ~6 hours, but the pool refreshes them with the
+refresh token — operationally, accounts with a refresh token never expire.
 
-**Cảnh báo**: đây là công cụ cho **account của chính bạn**. Đừng share token/file account cho ai,
-và tự cân nhắc với điều khoản dịch vụ của xAI khi dùng nhiều account.
+**Disclaimer**: use this with **your own accounts**. Do not share tokens or account files, and weigh
+xAI's terms of service yourself when pooling many accounts.
 
 ## License
 
-Apache-2.0 (theo source Grok Build tham khảo)
+[MIT](LICENSE)

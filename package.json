@@ -1,8 +1,9 @@
 {
   "name": "grok-pool",
   "version": "4.0.0",
-  "description": "Transparent catch-all gateway + account pool for Grok Build (trace-all, sticky sessions, health, failover)",
+  "description": "Transparent catch-all proxy + account pool for Grok Build — trace everything, premium-first routing, keeps Thinking alive",
   "type": "module",
+  "license": "MIT",
   "engines": {
     "node": ">=22.12"
   },
