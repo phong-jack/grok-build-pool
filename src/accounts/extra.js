@@ -27,14 +27,20 @@ export function saveExtraFile(file, accounts) {
   fs.writeFileSync(file, JSON.stringify(accounts, null, 2));
 }
 
-// Add or replace (by email) an entry. Returns the updated list.
+// Add or replace (by email) an entry. Existing label is preserved on replace
+// (OAuth logins write fresh tokens without a label). Returns the updated list.
 export function addExtraAccount(file, entry) {
   const list = loadExtraFile(file);
   const idx = list.findIndex(e => e.email === entry.email);
   if (idx >= 0) {
-    list[idx] = { ...list[idx], ...entry, premium: entry.premium ?? list[idx].premium ?? true };
+    const old = list[idx];
+    list[idx] = {
+      ...entry,
+      label: old.label ?? entry.label,
+      premium: entry.premium ?? old.premium ?? true
+    };
   } else {
-    list.push({ premium: true, ...entry });
+    list.push({ premium: true, label: entry.label, ...entry });
   }
   saveExtraFile(file, list);
   return list;
