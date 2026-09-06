@@ -15,7 +15,8 @@
     "smoke": "node scripts/smoke.js",
     "check-thinking": "node scripts/check-thinking.js",
     "export-accounts": "node scripts/export-accounts.js",
-    "test": "node --test tests/golden.test.js"
+    "test": "node --test tests/golden.test.js",
+    "probe-models": "node scripts/probe-models.js"
   },
   "dependencies": {
     "dotenv": "^16.6.1"
