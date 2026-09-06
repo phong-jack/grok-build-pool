@@ -13,6 +13,7 @@
     "login": "node src/login.js",
     "accounts": "node src/accounts.js",
     "smoke": "node scripts/smoke.js",
+    "check-thinking": "node scripts/check-thinking.js",
     "test": "node --test tests/golden.test.js"
   },
   "dependencies": {
