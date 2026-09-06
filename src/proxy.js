@@ -262,9 +262,30 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
   let attemptsLeft = maxAttempts;
   const triedAccounts = new Set();
   const refreshed = new Set();
+  const held = new Set();
   let lastFailure = null;
 
   while (attemptsLeft > 0) {
+    // HOLD FOR PREMIUM: reserve strategy + a thinking-model request + the only
+    // premium is cooling down → wait out its cooldown instead of degrading to a
+    // non-premium account, so the Thinking block survives (at the cost of latency).
+    if (
+      ctx.cfg.holdForPremiumMs > 0 &&
+      classification.cls === "INFERENCE" &&
+      held.size < 3 &&
+      classification.model && ctx.cfg.premiumModels.includes(classification.model)
+    ) {
+      const cooling = ctx.pool.findPremiumInCooldown(triedAccounts);
+      if (cooling && cooling.remaining <= ctx.cfg.holdForPremiumMs) {
+        held.add(cooling.id);
+        const wait = Math.min(cooling.remaining + 250, ctx.cfg.holdForPremiumMs);
+        console.log(`[REQ ${trace.id.slice(0, 5)}]   holding ${Math.round(wait / 100) / 10}s for premium ${cooling.label}`);
+        trace.note({ held_for_premium_ms: wait });
+        await new Promise(r => setTimeout(r, wait));
+        continue; // re-pick — premium should be usable now
+      }
+    }
+
     const pick = classification.cls === "METADATA"
       ? ctx.pool.pickMetadata({ classification, excludeIds: triedAccounts })
       : ctx.pool.pickFor({ classification, excludeIds: triedAccounts, allowFallback: true });

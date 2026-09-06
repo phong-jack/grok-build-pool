@@ -41,6 +41,10 @@ export function loadConfig(env = process.env) {
       .split(",")
       .map(s => s.trim())
       .filter(Boolean),
+    // reserve strategy: when a premium account is in cooldown, wait up to this
+    // long for it instead of failing over to non-premium accounts (keeps the
+    // Thinking block alive at the cost of latency). 0 = never wait.
+    holdForPremiumMs: Number(env.HOLD_FOR_PREMIUM_MS ?? 0),
     maxFailovers: Number(env.MAX_FAILOVERS ?? 4),
     stickyTtlMs: Number(env.STICKY_TTL_MS ?? 3_600_000),
     healthProbeIntervalMs: Number(env.HEALTH_PROBE_INTERVAL_MS ?? 600_000),

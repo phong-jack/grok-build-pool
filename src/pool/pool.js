@@ -93,6 +93,25 @@ export class AccountPool {
     return null;
   }
 
+  // premium account currently cooling down with the shortest remaining wait
+  findPremiumInCooldown(excludeIds = new Set()) {
+    let best = null;
+    for (const a of this.accounts()) {
+      if (excludeIds.has(a.id)) continue;
+      if (!this.isPremium(a)) continue;
+      if (a.isActive && a.auth.accessToken && !isExpired(a.auth)) {
+        const s = this.health.get(a.id);
+        if (s.effectiveStatus !== "ACTIVE" && s.cooldownUntil > Date.now()) {
+          const remaining = s.cooldownUntil - Date.now();
+          if (!best || remaining < best.remaining) {
+            best = { id: a.id, label: a.label, remaining };
+          }
+        }
+      }
+    }
+    return best;
+  }
+
   pickFor({ classification, excludeIds = new Set(), allowFallback = true }) {
     const all = this.accounts();
 
