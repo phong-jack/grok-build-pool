@@ -116,6 +116,27 @@ export function startProber({ pool, health, cfg, store }) {
     if (running) return;
     running = true;
     try {
+      // proactive refresh: expired / near-expiry tokens. Extra-file accounts
+      // have no other refresh path — once expired they're excluded from
+      // selection and nothing else would ever revive them.
+      const stale = pool.accounts().filter(a =>
+        a.isActive && a.auth.refreshToken && a.auth.expiresAt &&
+        Date.parse(a.auth.expiresAt) - Date.now() < 600_000);
+      for (const account of stale) {
+        try {
+          const fresh = await refreshAccountToken(account);
+          account.auth.accessToken = fresh.accessToken;
+          account.auth.refreshToken = fresh.refreshToken;
+          account.auth.expiresAt = fresh.expiresAt;
+          store?.saveTokenOverride(account.id, fresh);
+          health.recordRefresh(account.id);
+          console.log(`[prober] refreshed token for ${account.label} (now expires ${fresh.expiresAt})`);
+        } catch (error) {
+          console.warn(`[prober] proactive refresh failed for ${account.label}: ${error.message}`);
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
+
       const candidates = pool.accounts().filter(a => a.isActive && !health.isUsable(a.id));
       for (const account of candidates) {
         let { ok, status } = await probeToken(cfg.upstreamOrigin, account.auth.accessToken);

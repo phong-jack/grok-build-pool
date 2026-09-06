@@ -13,24 +13,40 @@ import { createServer } from "./server.js";
 const cfg = loadConfig();
 
 const trace = new Trace(cfg.trace);
-const source = new AccountSource({ dbPath: cfg.routerDbPath, ttlMs: cfg.accountsTtlMs, extraPath: cfg.accountsExtraPath });
+// refreshed-token overrides: pool.db is the store, this map keeps them hot
+// across source cache rebuilds (prober/proxy refreshes update it on save)
+const tokenOverrides = new Map();
+const source = new AccountSource({ dbPath: cfg.routerDbPath, ttlMs: cfg.accountsTtlMs, extraPath: cfg.accountsExtraPath, overrides: tokenOverrides });
 const store = new PoolStore(cfg.poolDbPath, { retentionDays: cfg.requestRetentionDays });
 const sticky = new StickyIndex({ store, ttlMs: cfg.stickyTtlMs });
 const health = new HealthTracker({ store });
 const pool = new AccountPool({ source, sticky, health, strategy: cfg.strategy, premiumModels: cfg.premiumModels });
 
-// Apply refreshed-token overrides from pool.db on top of the read-only 9Router rows.
+// load persisted overrides (from previous sessions' refreshes) into the hot map
 for (const rowState of store.loadAccountStates()) {
   if (!rowState.token_override) continue;
-  const account = source.byId(rowState.account_id);
-  if (!account) continue;
-  const overrideExp = Date.parse(rowState.token_override_expires_at ?? "");
-  if (Number.isFinite(overrideExp) && overrideExp > Date.now() + 30_000 && !isExpired({ expiresAt: rowState.token_override_expires_at })) {
-    account.auth.accessToken = rowState.token_override;
-    if (rowState.token_override_refresh) account.auth.refreshToken = rowState.token_override_refresh;
-    account.auth.expiresAt = rowState.token_override_expires_at;
+  if (Date.parse(rowState.token_override_expires_at ?? "") > Date.now() + 30_000) {
+    tokenOverrides.set(rowState.account_id, {
+      accessToken: rowState.token_override,
+      refreshToken: rowState.token_override_refresh,
+      expiresAt: rowState.token_override_expires_at
+    });
   }
 }
+
+// keep the hot map in sync whenever a refresh is saved
+const _saveTokenOverride = store.saveTokenOverride.bind(store);
+store.saveTokenOverride = (accountId, tokens) => {
+  if (tokens.expiresAt && Date.parse(tokens.expiresAt) > Date.now() + 30_000) {
+    tokenOverrides.set(accountId, tokens);
+  } else {
+    tokenOverrides.delete(accountId);
+  }
+  return _saveTokenOverride(accountId, tokens);
+};
+
+// sanity: apply overrides to the initial cached accounts
+source.refresh(true);
 
 const ctx = { cfg, trace, source, store, sticky, health, pool };
 ctx.admin = createAdminHandler({ ctx });

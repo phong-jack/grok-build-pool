@@ -53,10 +53,13 @@ export function accountFromRow(row) {
 }
 
 export class AccountSource {
-  constructor({ dbPath, ttlMs = 30_000, extraPath = null, logger = console }) {
+  constructor({ dbPath, ttlMs = 30_000, extraPath = null, overrides = null, logger = console }) {
     this.dbPath = dbPath;
     this.ttlMs = ttlMs;
     this.extraPath = extraPath;
+    // Map<accountId, {accessToken, refreshToken, expiresAt}> — refreshed tokens
+    // survive the periodic cache rebuild (otherwise they'd be lost every 30s)
+    this.overrides = overrides;
     this.logger = logger;
     this.db = null;
     this.cached = null;
@@ -115,9 +118,19 @@ export class AccountSource {
     if (!force && this.cached && now - this.cachedAt < this.ttlMs) return this.cached;
     const base = this.#refreshRouter();
     const extra = this.loadExtraAccounts();
-    this.cached = [...base, ...extra];
+    this.cached = [...base, ...extra].map(a => this.#applyOverride(a));
     this.cachedAt = now;
     return this.cached;
+  }
+
+  #applyOverride(account) {
+    const ov = this.overrides?.get(account.id);
+    if (!ov?.accessToken) return account;
+    if (ov.expiresAt && Date.parse(ov.expiresAt) <= Date.now() + 30_000) return account;
+    account.auth.accessToken = ov.accessToken;
+    if (ov.refreshToken) account.auth.refreshToken = ov.refreshToken;
+    if (ov.expiresAt) account.auth.expiresAt = ov.expiresAt;
+    return account;
   }
 
   #refreshRouter() {
