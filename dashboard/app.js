@@ -178,6 +178,7 @@ async function refresh() {
     $("#stats").innerHTML = [
       ["accounts", health.accounts_total, "blue"],
       ["active", by.ACTIVE ?? 0, "green"],
+      ["thinking 24h", stats.thinking?.pct != null ? `${stats.thinking.pct}%` : "-", "purple"],
       ["cooldown", by.COOLDOWN ?? 0, "yellow"],
       ["rate limited", by.RATE_LIMITED ?? 0, "yellow"],
       ["auth failed", by.AUTH_FAILED ?? 0, "red"],

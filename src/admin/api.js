@@ -6,9 +6,42 @@
 //   POST   /pool/premium/check/<id>      run a live reasoning-summary probe now
 //   POST   /pool/export-accounts         sync freshest tokens from pool.db into the file
 
+import fs from "node:fs";
+import path from "node:path";
 import { addExtraAccount, loadExtraFile, removeExtraAccount, syncExtraFromOverrides } from "../accounts/extra.js";
 import { probeSummaries } from "../pool/prober.js";
 import { createLoginManager } from "../auth/login-flow.js";
+
+// % of completed inference turns (last 24h) that streamed reasoning summaries.
+// Background title-gen turns (response.incomplete) are excluded — the user
+// never sees them.
+function thinkingUptime24h(ndjsonPath) {
+  try {
+    const raw = fs.readFileSync(ndjsonPath, "utf8");
+    const cutoff = Date.now() - 86_400_000;
+    let total = 0;
+    let withSummaries = 0;
+    for (const line of raw.split("\n")) {
+      if (!line) continue;
+      let r;
+      try { r = JSON.parse(line); } catch { continue; }
+      if (r.path !== "/v1/responses" || r.status !== 200) continue;
+      const ts = Date.parse(r.ts);
+      if (!(ts >= cutoff)) continue;
+      const kinds = r.sse_event_kinds ?? [];
+      if (kinds.includes("response.incomplete")) continue; // title-gen etc.
+      total++;
+      if (kinds.includes("reasoning_summary_text.delta")) withSummaries++;
+    }
+    return {
+      pct: total ? Math.round((withSummaries / total) * 1000) / 10 : null,
+      turns: total,
+      with_summaries: withSummaries
+    };
+  } catch {
+    return { pct: null, turns: 0, with_summaries: 0 };
+  }
+}
 
 // web-dashboard OAuth login manager (adds premium accounts without the CLI).
 // deps are wired lazily in bindLoginDeps() because this module initializes
@@ -131,7 +164,10 @@ export function createAdminHandler({ ctx }) {
     }
 
     if (req.method === "GET" && pathname === "/pool/stats") {
-      return json(res, 200, { ...store.stats(), in_flight: [...pool.inFlight.values()].reduce((a, b) => a + b, 0) });
+      const base = store.stats();
+      base.in_flight = [...pool.inFlight.values()].reduce((a, b) => a + b, 0);
+      base.thinking = thinkingUptime24h(path.join(ctx.cfg.trace.dir, "requests.ndjson"));
+      return json(res, 200, base);
     }
 
     if (req.method === "GET" && pathname === "/pool/config") {
