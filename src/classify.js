@@ -1,4 +1,5 @@
-// Read-only peek at the request. The body bytes themselves are forwarded untouched.
+// Peek at the request. JSON /v1 inference bodies get stream:true injected
+// unless the client explicitly set stream:false; other bytes stay untouched.
 
 const METADATA_PATHS = [
   /^\/v1\/settings$/,
@@ -67,4 +68,44 @@ export function classifyRequest({ method, path, body, contentType, headers }) {
   }
 
   return result;
+}
+
+function isJsonContentType(contentType) {
+  return typeof contentType === "string" && contentType.includes("json");
+}
+
+function isV1Path(path) {
+  return typeof path === "string" && (path === "/v1" || path.startsWith("/v1/"));
+}
+
+function wantsStreamDefault(parsed) {
+  // Explicit false is the only opt-out. Missing / null / "true" / 1 all become true.
+  if (parsed.stream === false) return false;
+  return true;
+}
+
+// Default stream:true on JSON /v1 bodies so upstream always streams unless the
+// client set stream:false. Returns the original Buffer when nothing changes.
+export function ensureStreamTrue({ path, body, contentType }) {
+  if (!body?.length || !isV1Path(path) || !isJsonContentType(contentType)) {
+    return { body, injected: false, stream: null };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    return { body, injected: false, stream: null };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { body, injected: false, stream: null };
+  }
+  if (parsed.stream === true) return { body, injected: false, stream: true };
+  if (!wantsStreamDefault(parsed)) return { body, injected: false, stream: false };
+
+  parsed.stream = true;
+  return {
+    body: Buffer.from(JSON.stringify(parsed)),
+    injected: true,
+    stream: true
+  };
 }

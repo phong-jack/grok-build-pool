@@ -1,21 +1,34 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { sendUpstream, drainUpstream, filterResponseHeaders, isRetryableStatus } from "./forward.js";
+import {
+  sendUpstream,
+  drainUpstream,
+  filterResponseHeaders,
+  isRetryableStatus,
+} from "./forward.js";
 import { buildUpstreamHeaders } from "./identity.js";
 import { refreshAccountToken } from "./accounts/refresh.js";
-import { classifyRequest } from "./classify.js";
+import { classifyRequest, ensureStreamTrue } from "./classify.js";
 
 const WIRE = 2; // matches LEVEL_ORDER.wire in trace
 
 function shortId() {
-  return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+  return (
+    Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4)
+  );
 }
 
 function writeJson(res, status, payload) {
-  if (res.headersSent) { res.end(); return; }
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
   const body = JSON.stringify(payload);
-  res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+  });
   res.end(body);
 }
 
@@ -57,17 +70,25 @@ function createStreamTap({ onId, wireSink }) {
   const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
   const ID_PATTERNS = [
     new RegExp(`"response"\\s*:\\s*\\{[^{}]*?"id"\\s*:\\s*"(${UUID})"`, "g"),
-    new RegExp(`"id"\\s*:\\s*"(${UUID})"[^{}]{0,300}"object"\\s*:\\s*"response"`, "g"),
-    /"(?:id|response_id)"\s*:\s*"(resp_[A-Za-z0-9_-]+)"/g
+    new RegExp(
+      `"id"\\s*:\\s*"(${UUID})"[^{}]{0,300}"object"\\s*:\\s*"response"`,
+      "g",
+    ),
+    /"(?:id|response_id)"\s*:\s*"(resp_[A-Za-z0-9_-]+)"/g,
   ];
-  const tap = { bytes: 0, ids: new Set(), eventCount: 0, eventKinds: new Set() };
+  const tap = {
+    bytes: 0,
+    ids: new Set(),
+    eventCount: 0,
+    eventKinds: new Set(),
+  };
   let head = "";
   let tail = "";
   let lineBuf = "";
   const HEAD_CAP = 128 * 1024;
   const TAIL_CAP = 384 * 1024;
 
-  tap.onChunk = chunk => {
+  tap.onChunk = (chunk) => {
     tap.bytes += chunk.length;
     const text = chunk.toString("latin1"); // ASCII patterns survive byte→char
     if (wireSink) wireSink(chunk);
@@ -83,20 +104,33 @@ function createStreamTap({ onId, wireSink }) {
         tap.eventKinds.add(line.slice(6).trim());
       }
     }
-    const window = head.endsWith(tail.slice(0, 64)) ? head + tail : head + "\n" + tail;
+    const window = head.endsWith(tail.slice(0, 64))
+      ? head + tail
+      : head + "\n" + tail;
     for (const re of ID_PATTERNS) {
       re.lastIndex = 0;
       for (const m of window.matchAll(re)) tap.ids.add(m[1]);
     }
     if (onId && tap.ids.size) {
-      for (const id of tap.ids) { onId(id); }
+      for (const id of tap.ids) {
+        onId(id);
+      }
       tap.ids.clear();
     }
   };
   return tap;
 }
 
-async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, classification, startedAt, transformJson = null }) {
+async function streamResponseToClient({
+  ctx,
+  res,
+  trace,
+  upstreamRes,
+  account,
+  classification,
+  startedAt,
+  transformJson = null,
+}) {
   const status = upstreamRes.statusCode;
   const respHeaders = filterResponseHeaders(upstreamRes.rawHeaders);
   const contentType = String(respHeaders["content-type"] ?? "");
@@ -110,7 +144,9 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
     let outHeaders = { ...respHeaders };
     let patched = false;
     try {
-      const enc = String(upstreamRes.headers["content-encoding"] ?? "").toLowerCase();
+      const enc = String(
+        upstreamRes.headers["content-encoding"] ?? "",
+      ).toLowerCase();
       if (enc === "gzip") body = zlib.gunzipSync(body);
       else if (enc === "br") body = zlib.brotliDecompressSync(body);
       else if (enc === "deflate") body = zlib.inflateSync(body);
@@ -126,16 +162,36 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
       outHeaders = { ...respHeaders };
     }
     if (patched) trace.note({ json_patched: true });
-    trace.response({ status, account, latencyMs: Date.now() - startedAt, ttfbMs: Date.now() - startedAt, bytesOut: body.length, stream: false, contentType });
+    trace.response({
+      status,
+      account,
+      latencyMs: Date.now() - startedAt,
+      ttfbMs: Date.now() - startedAt,
+      bytesOut: body.length,
+      stream: false,
+      contentType,
+    });
     ctx.health.recordSuccess(account.id);
     ctx.store.insertRequest({
-      id: trace.id, ts: trace.startedAt, method: trace.method, path: trace.record.path ?? trace.rawUrl,
-      classification: trace.record.classification, model: trace.record.model, stream: false,
-      account_id: account.id, account_label: account.label, account_email: account.email,
-      status, latency_ms: Date.now() - startedAt, ttfb_ms: Date.now() - startedAt,
-      bytes_in: trace.record.body_size ?? 0, bytes_out: body.length, attempts: trace.record.attempt,
-      error: null, previous_response_id: classification.previousResponseId,
-      session_id: classification.sessionId ?? classification.conversationId
+      id: trace.id,
+      ts: trace.startedAt,
+      method: trace.method,
+      path: trace.record.path ?? trace.rawUrl,
+      classification: trace.record.classification,
+      model: trace.record.model,
+      stream: false,
+      account_id: account.id,
+      account_label: account.label,
+      account_email: account.email,
+      status,
+      latency_ms: Date.now() - startedAt,
+      ttfb_ms: Date.now() - startedAt,
+      bytes_in: trace.record.body_size ?? 0,
+      bytes_out: body.length,
+      attempts: trace.record.attempt,
+      error: null,
+      previous_response_id: classification.previousResponseId,
+      session_id: classification.sessionId ?? classification.conversationId,
     });
     await trace.end({ done: patched ? "ok+patched" : "ok" });
     res.writeHead(status, outHeaders);
@@ -150,7 +206,7 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "res-stream.txt");
       let fd = null;
-      wireSink = chunk => {
+      wireSink = (chunk) => {
         try {
           fd = fd ?? fs.openSync(file, "a");
           fs.writeSync(fd, chunk);
@@ -166,13 +222,13 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
   trace.wireResponseHeaders(status, upstreamRes.headers);
   res.writeHead(status, respHeaders);
 
-  const result = await new Promise(resolve => {
-    const finish = info => {
+  const result = await new Promise((resolve) => {
+    const finish = (info) => {
       if (finished) return;
       finished = true;
       resolve(info);
     };
-    const onData = chunk => {
+    const onData = (chunk) => {
       if (firstByteAt === null) firstByteAt = Date.now();
       tap.onChunk(chunk);
     };
@@ -182,12 +238,22 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
 
     upstreamRes.on("end", () => finish({ ok: true }));
     upstreamRes.on("aborted", () => {
-      trace.streamError({ account, message: "upstream aborted", elapsedMs: Date.now() - startedAt, bytesSent: tap.bytes });
+      trace.streamError({
+        account,
+        message: "upstream aborted",
+        elapsedMs: Date.now() - startedAt,
+        bytesSent: tap.bytes,
+      });
       if (!res.writableEnded) res.destroy();
       finish({ ok: false, error: new Error("upstream aborted") });
     });
-    upstreamRes.on("error", error => {
-      trace.streamError({ account, message: error.message, elapsedMs: Date.now() - startedAt, bytesSent: tap.bytes });
+    upstreamRes.on("error", (error) => {
+      trace.streamError({
+        account,
+        message: error.message,
+        elapsedMs: Date.now() - startedAt,
+        bytesSent: tap.bytes,
+      });
       if (!res.writableEnded) res.destroy();
       finish({ ok: false, error });
     });
@@ -206,13 +272,19 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
     // client aborts are not the account's fault
     ctx.health.recordSuccess(account.id);
   } else {
-    ctx.health.recordFailure(account.id, "network", { message: result.error?.message ?? "stream error" });
+    ctx.health.recordFailure(account.id, "network", {
+      message: result.error?.message ?? "stream error",
+    });
   }
 
   // Sticky bindings from observed response ids (inference state lives account-side);
   // session keys (path session uuid / conv / session headers) bind too.
   for (const id of tap.ids) ctx.sticky.bindResponse(id, account.id);
-  const sessionKeys = [classification.pathSessionId, classification.sessionId, classification.conversationId].filter(Boolean);
+  const sessionKeys = [
+    classification.pathSessionId,
+    classification.sessionId,
+    classification.conversationId,
+  ].filter(Boolean);
   for (const key of sessionKeys) ctx.sticky.bindSession(key, account.id);
 
   trace.response({
@@ -222,10 +294,13 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
     ttfbMs,
     bytesOut: tap.bytes,
     stream: isSse,
-    contentType
+    contentType,
   });
   if (isSse && tap.eventCount) {
-    trace.note({ sse_event_count: tap.eventCount, sse_event_kinds: [...tap.eventKinds].slice(0, 60) });
+    trace.note({
+      sse_event_count: tap.eventCount,
+      sse_event_kinds: [...tap.eventKinds].slice(0, 60),
+    });
   }
 
   ctx.store.insertRequest({
@@ -245,19 +320,30 @@ async function streamResponseToClient({ ctx, res, trace, upstreamRes, account, c
     bytes_in: trace.record.body_size ?? 0,
     bytes_out: tap.bytes,
     attempts: trace.record.attempt,
-    error: result.ok ? null : (result.error?.message ?? (result.aborted ? "client aborted" : "stream error")),
+    error: result.ok
+      ? null
+      : (result.error?.message ??
+        (result.aborted ? "client aborted" : "stream error")),
     previous_response_id: classification.previousResponseId,
-    session_id: classification.sessionId ?? classification.conversationId
+    session_id: classification.sessionId ?? classification.conversationId,
   });
 
   await trace.end({
     done: result.ok ? "ok" : result.aborted ? "client_aborted" : "stream_error",
-    response_ids: [...tap.ids].slice(0, 20)
+    response_ids: [...tap.ids].slice(0, 20),
   });
   return result;
 }
 
-async function proxyWithFailover({ ctx, req, res, trace, body, classification, pathname }) {
+async function proxyWithFailover({
+  ctx,
+  req,
+  res,
+  trace,
+  body,
+  classification,
+  pathname,
+}) {
   const maxAttempts = Math.max(1, ctx.cfg.maxFailovers + 1);
   let attemptsLeft = maxAttempts;
   const triedAccounts = new Set();
@@ -278,17 +364,27 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
       const cooling = ctx.pool.findPremiumInCooldown(triedAccounts);
       if (cooling && cooling.remaining <= ctx.cfg.holdForPremiumMs) {
         held.add(cooling.id);
-        const wait = Math.min(cooling.remaining + 250, ctx.cfg.holdForPremiumMs);
-        console.log(`[REQ ${trace.id.slice(0, 5)}]   holding ${Math.round(wait / 100) / 10}s for premium ${cooling.label}`);
+        const wait = Math.min(
+          cooling.remaining + 250,
+          ctx.cfg.holdForPremiumMs,
+        );
+        console.log(
+          `[REQ ${trace.id.slice(0, 5)}]   holding ${Math.round(wait / 100) / 10}s for premium ${cooling.label}`,
+        );
         trace.note({ held_for_premium_ms: wait });
-        await new Promise(r => setTimeout(r, wait));
+        await new Promise((r) => setTimeout(r, wait));
         continue; // re-pick — premium should be usable now
       }
     }
 
-    const pick = classification.cls === "METADATA"
-      ? ctx.pool.pickMetadata({ classification, excludeIds: triedAccounts })
-      : ctx.pool.pickFor({ classification, excludeIds: triedAccounts, allowFallback: true });
+    const pick =
+      classification.cls === "METADATA"
+        ? ctx.pool.pickMetadata({ classification, excludeIds: triedAccounts })
+        : ctx.pool.pickFor({
+            classification,
+            excludeIds: triedAccounts,
+            allowFallback: true,
+          });
     const account = pick.account;
     if (!account) {
       writeJson(res, 503, {
@@ -297,10 +393,13 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
           message: triedAccounts.size
             ? "No further accounts available after failover"
             : "No usable Grok accounts (all expired / rate-limited / dead)",
-          tried: triedAccounts.size
-        }
+          tried: triedAccounts.size,
+        },
       });
-      await trace.end({ done: "pool_unavailable", attempts: triedAccounts.size });
+      await trace.end({
+        done: "pool_unavailable",
+        attempts: triedAccounts.size,
+      });
       return;
     }
 
@@ -311,7 +410,12 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
     const startedAt = Date.now();
 
     try {
-      const headers = buildUpstreamHeaders({ clientHeaders: req.headers, account, classification, cfg: ctx.cfg });
+      const headers = buildUpstreamHeaders({
+        clientHeaders: req.headers,
+        account,
+        classification,
+        cfg: ctx.cfg,
+      });
       trace.wireRequestHeaders(headers);
       if (body?.length) trace.wireRequestBody(body);
 
@@ -323,15 +427,19 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
           pathAndQuery: req.url,
           headers,
           body,
-          timeoutMs: ctx.cfg.upstreamTimeoutMs
+          timeoutMs: ctx.cfg.upstreamTimeoutMs,
         });
       } catch (error) {
         lastFailure = error;
-        trace.upstreamError({ account, error, elapsedMs: Date.now() - startedAt });
+        trace.upstreamError({
+          account,
+          error,
+          elapsedMs: Date.now() - startedAt,
+        });
         ctx.health.recordFailure(
           account.id,
           error.code === "GROK_POOL_TIMEOUT" ? "timeout" : "network",
-          { message: error.message }
+          { message: error.message },
         );
         continue;
       }
@@ -340,9 +448,19 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
       const elapsedMs = Date.now() - startedAt;
 
       if (isRetryableStatus(status)) {
-        trace.upstreamStatus({ account, status, headers: upstreamRes.headers, elapsedMs, retryable: true });
+        trace.upstreamStatus({
+          account,
+          status,
+          headers: upstreamRes.headers,
+          elapsedMs,
+          retryable: true,
+        });
 
-        if (status === 401 && account.auth.refreshToken && !refreshed.has(account.id)) {
+        if (
+          status === 401 &&
+          account.auth.refreshToken &&
+          !refreshed.has(account.id)
+        ) {
           refreshed.add(account.id);
           try {
             const fresh = await refreshAccountToken(account);
@@ -351,13 +469,17 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
             account.auth.expiresAt = fresh.expiresAt;
             ctx.store.saveTokenOverride(account.id, fresh);
             ctx.health.recordRefresh(account.id);
-            console.log(`[REQ ${trace.id.slice(0, 5)}]   token refreshed for ${account.label}; retrying same account`);
+            console.log(
+              `[REQ ${trace.id.slice(0, 5)}]   token refreshed for ${account.label}; retrying same account`,
+            );
             await drainUpstream(upstreamRes);
             attemptsLeft += 1; // refresh-retry does not consume a failover slot
             triedAccounts.delete(account.id);
             continue;
           } catch (error) {
-            ctx.health.recordFailure(account.id, "auth", { message: `refresh failed: ${error.message}` });
+            ctx.health.recordFailure(account.id, "auth", {
+              message: `refresh failed: ${error.message}`,
+            });
             await drainUpstream(upstreamRes);
             lastFailure = error;
             continue;
@@ -365,8 +487,9 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
         }
 
         ctx.health.recordFailure(account.id, kindForStatus(status), {
-          retryAfterMs: status === 429 ? parseRetryAfterMs(upstreamRes.headers) : undefined,
-          message: `HTTP ${status}`
+          retryAfterMs:
+            status === 429 ? parseRetryAfterMs(upstreamRes.headers) : undefined,
+          message: `HTTP ${status}`,
         });
         await drainUpstream(upstreamRes);
         lastFailure = new Error(`HTTP ${status}`);
@@ -376,15 +499,32 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
       // Terminal response — stream it back untouched (with the one narrow
       // /v1/user subscription patch so the CLI doesn't fall into Free tier).
       const transformJson =
-        ctx.cfg.subscriptionTier && req.method === "GET" && pathname === "/v1/user"
-          ? (j => {
-              if (j && typeof j === "object" && "subscriptionTier" in j && (j.subscriptionTier === null || j.subscriptionTier === undefined)) {
+        ctx.cfg.subscriptionTier &&
+        req.method === "GET" &&
+        pathname === "/v1/user"
+          ? (j) => {
+              if (
+                j &&
+                typeof j === "object" &&
+                "subscriptionTier" in j &&
+                (j.subscriptionTier === null ||
+                  j.subscriptionTier === undefined)
+              ) {
                 j.subscriptionTier = ctx.cfg.subscriptionTier;
               }
               return j;
-            })
+            }
           : null;
-      return await streamResponseToClient({ ctx, res, trace, upstreamRes, account, classification, startedAt, transformJson });
+      return await streamResponseToClient({
+        ctx,
+        res,
+        trace,
+        upstreamRes,
+        account,
+        classification,
+        startedAt,
+        transformJson,
+      });
     } finally {
       ctx.pool.finish(account);
     }
@@ -395,8 +535,8 @@ async function proxyWithFailover({ ctx, req, res, trace, body, classification, p
       type: "all_accounts_failed",
       message: "All accounts failed before a response could be streamed",
       cause: lastFailure?.message ?? null,
-      tried: triedAccounts.size
-    }
+      tried: triedAccounts.size,
+    },
   });
   await trace.end({ done: "all_failed", attempts: triedAccounts.size });
 }
@@ -405,9 +545,14 @@ export async function handleProxy({ ctx, req, res, pathname }) {
   const trace = ctx.trace.begin(shortId(), req.method, req.url);
 
   if (ctx.cfg.poolApiKey) {
-    const provided = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    const provided = (req.headers.authorization ?? "").replace(
+      /^Bearer\s+/i,
+      "",
+    );
     if (provided !== ctx.cfg.poolApiKey) {
-      writeJson(res, 401, { error: { type: "pool_auth", message: "Invalid pool API key" } });
+      writeJson(res, 401, {
+        error: { type: "pool_auth", message: "Invalid pool API key" },
+      });
       return trace.end({ done: "rejected" });
     }
   }
@@ -421,23 +566,46 @@ export async function handleProxy({ ctx, req, res, pathname }) {
         error: {
           type: "body_too_large",
           message: `Request body exceeds BODY_LIMIT (${ctx.cfg.bodyLimit} bytes); the pool only forwards replayable requests`,
-          received: read.size
-        }
+          received: read.size,
+        },
       });
       return trace.end({ done: "rejected_oversize" });
     }
     body = read.body;
   }
 
+  const contentType = req.headers["content-type"] ?? "";
+  const streamed = ensureStreamTrue({ path: pathname, body, contentType });
+  body = streamed.body;
+
   const classification = classifyRequest({
     method: req.method,
     path: pathname,
     body,
-    contentType: req.headers["content-type"] ?? "",
-    headers: req.headers
+    contentType,
+    headers: req.headers,
   });
 
-  trace.requestReceived({ classification, bodySize: body?.length ?? 0 });
+  if (streamed.injected) {
+    trace.note({ stream_defaulted: true });
+  }
 
-  return proxyWithFailover({ ctx, req, res, trace, body, classification, pathname });
+  if (streamed.stream !== null) {
+    classification.stream = streamed.stream;
+  }
+
+  trace.requestReceived({
+    classification,
+    bodySize: body?.length ?? 0,
+  });
+
+  return proxyWithFailover({
+    ctx,
+    req,
+    res,
+    trace,
+    body,
+    classification,
+    pathname,
+  });
 }

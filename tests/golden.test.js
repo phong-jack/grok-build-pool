@@ -141,6 +141,24 @@ test("byte-identical SSE passthrough on /v1/responses", async () => {
   assert.equal(bytes, expected);
 });
 
+test("stream: omitted on /v1 JSON body is injected as true", async () => {
+  mock.resetReceived();
+  const res = await postJson("/v1/responses", { model: "grok-4.5", input: "hi" });
+  assert.equal(res.status, 200);
+  const forwarded = JSON.parse(mock.received.at(-1).body);
+  assert.equal(forwarded.stream, true);
+  assert.equal(forwarded.model, "grok-4.5");
+  assert.equal(forwarded.input, "hi");
+});
+
+test("stream: explicit false on /v1 JSON body is preserved", async () => {
+  mock.resetReceived();
+  const res = await postJson("/v1/responses", { model: "grok-4.5", stream: false, input: "hi" });
+  assert.equal(res.status, 200);
+  const forwarded = JSON.parse(mock.received.at(-1).body);
+  assert.equal(forwarded.stream, false);
+});
+
 test("catch-all: unknown endpoint is forwarded verbatim with query", async () => {
   const res = await fetch(`${poolBase}/v1/brand-new-endpoint?x=1&y=%C3%A9`, {
     method: "PATCH",
