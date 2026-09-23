@@ -20,7 +20,7 @@ function probe(account) {
       input: "What is 9*9? Think briefly.",
       stream: true,
       reasoning: { summary: "concise" },
-      include: ["reasoning.encrypted_content"],
+      include: ["reasoning.encrypted_content", "reasoning_summary_text.delta"],
       store: false,
       max_output_tokens: 500,
       temperature: 1

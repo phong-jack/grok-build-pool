@@ -8,8 +8,8 @@ async function ask(model) {
     model,
     input: "What is 8*8? Think briefly.",
     stream: true,
-    reasoning: { summary: "concise" },
-    include: ["reasoning.encrypted_content"],
+    reasoning: { summary: "detailed" },
+    // include: ["reasoning.encrypted_content", "reasoning_summary_text.delta"],
     store: false,
     max_output_tokens: 500,
     temperature: 1
